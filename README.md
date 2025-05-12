@@ -1,2 +1,0 @@
-# AshAssistant
-Personal AI assistant
