@@ -16,19 +16,15 @@ def interactive_prompt():
             print("Exiting the command prompt.")
             break
         elif 'ash ' in command.lower():
-            n_ashCommands=ash.process_command(command)
-            for i in n_ashCommands:
-                commandText, tags, tagsWithArguments = ash.extract_tags(i)
-                ash.generate_shell_command(commandText, tags, tagsWithArguments, i)
-            resultCommand = ash.combine_commands()
+            resultCommand = ash.get_command(command)
             AshUsed=True
         try:
             if AshUsed==False:
                 os.system(command)
             else:
-                #os.system(resultCommand)
+                os.system(resultCommand)
                 print(resultCommand)
-                os.system("echo Got em!")
+                #os.system("echo Got em!")
         except Exception as e:
             print(f"Error: {e}")
 

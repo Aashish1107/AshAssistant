@@ -65,10 +65,17 @@ class Ash:
         Generates a shell command based on the input text.
         """
         # Example: You can customize this logic to map commands to shell commands
-        if text.startswith("'list files"):
+        if text.startswith("list files"):
             self.commands[index]="dir"
         else:
-            return f"echo 'Couldnt Generate command for {command}'"
+            return f"echo 'Couldnt Generate command for {text}'"
+    def get_command(self, command):
+        n_ashCommands=self.process_command(command)
+        for i in n_ashCommands:
+            commandText, tags, tagsWithArguments = self.extract_tags(i)
+            self.generate_shell_command(commandText, tags, tagsWithArguments, i)
+        resultCommand = self.combine_commands()
+        return resultCommand
 
 # Example usage
 if __name__ == "__main__":
