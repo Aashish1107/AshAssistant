@@ -3,14 +3,21 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/Aashish1107/AshAssistant/server/internal/auth"
+	"github.com/Aashish1107/AshAssistant/server/internal/webui"
 )
 
-// readyTimeout bounds how long /readyz waits for all its checks.
-const readyTimeout = 5 * time.Second
+const (
+	// readyTimeout bounds how long /readyz waits for all its checks.
+	readyTimeout = 5 * time.Second
+	// apiTimeout bounds every /api request. (File transfers, added later,
+	// will get their own limits.)
+	apiTimeout = 30 * time.Second
+)
 
 // Check is one thing /readyz verifies, such as "the database answers".
 type Check struct {
@@ -18,13 +25,44 @@ type Check struct {
 	Run  func(ctx context.Context) error
 }
 
-// NewRouter returns the server's HTTP handler with every route registered.
-// readiness lists what /readyz checks.
-func NewRouter(logger *slog.Logger, readiness []Check) http.Handler {
+// Deps is what the HTTP layer needs from the rest of the server.
+type Deps struct {
+	Logger    *slog.Logger
+	Readiness []Check // what /readyz checks
+	Auth      *auth.Service
+}
+
+// NewRouter returns the server's HTTP handler: every route, wrapped in the
+// middleware chain (outermost first):
+//
+//	request ID → access log → panic recovery → security headers →
+//	cross-origin check → CSRF header check → route (→ login check, API timeout)
+func NewRouter(deps Deps) http.Handler {
+	a := &api{logger: deps.Logger, auth: deps.Auth}
 	mux := http.NewServeMux()
+
 	mux.HandleFunc("GET /healthz", handleHealthz)
-	mux.Handle("GET /readyz", handleReadyz(logger, readiness))
-	return logRequests(logger, mux)
+	mux.Handle("GET /readyz", handleReadyz(deps.Logger, deps.Readiness))
+
+	web := webui.Handler()
+	mux.Handle("GET /{$}", web)
+	mux.Handle("GET /assets/", web)
+
+	mux.Handle("POST /api/v1/auth/login", withTimeout(http.HandlerFunc(a.login)))
+	mux.Handle("POST /api/v1/auth/logout", withTimeout(http.HandlerFunc(a.logout)))
+	mux.Handle("GET /api/v1/me", withTimeout(a.requireLogin(http.HandlerFunc(a.me))))
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, http.StatusNotFound, "not_found", "There's no API endpoint at "+r.URL.Path)
+	})
+
+	var handler http.Handler = mux
+	handler = requireCSRFHeader(handler)
+	handler = rejectCrossOrigin(handler)
+	handler = securityHeaders(handler)
+	handler = recoverPanics(deps.Logger, handler)
+	handler = logRequests(deps.Logger, handler)
+	handler = withRequestID(handler)
+	return handler
 }
 
 // handleHealthz reports that the process is up. It checks nothing else, so it
@@ -62,13 +100,4 @@ func handleReadyz(logger *slog.Logger, checks []Check) http.HandlerFunc {
 		}
 		writeJSON(w, status, response)
 	}
-}
-
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	encoder := json.NewEncoder(w)
-	encoder.SetIndent("", "  ")
-	encoder.Encode(body)
 }

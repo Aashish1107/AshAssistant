@@ -4,9 +4,9 @@ A private cloud that runs on my Windows laptop. I use it **only through a web
 browser**, from my phone, from anywhere. Built for one person, but designed so
 it could grow to more users without a rewrite.
 
-Status: **Phase 1, step 2 built** — settings file, SQLite database, `user create`
-and `GET /readyz`. It is done once the phone shows `/readyz` ok
-([`server/README.md`](../server/README.md)). Next: step 3.
+Status: **Phase 1, step 3 built** — login/logout, sessions, the full middleware chain
+and a login test page. It is done once you can log in and out from the phone
+([`server/README.md`](../server/README.md)). Next: step 4.
 
 ---
 
@@ -77,14 +77,14 @@ with the web UI inside it.
 
 ### Middleware chain (every request, in this order)
 1. **Request ID** — attached to logs and the response (`X-Request-Id`).
-2. **Panic recovery** — a bug returns 500, never kills the server.
-3. **Access log + metrics** — method, route, status, duration, bytes.
+2. **Access log + metrics** — method, route, status, duration, bytes, client address, user.
+3. **Panic recovery** — a bug returns 500 (and is logged with a stack), never kills the server.
 4. **Security headers** — CSP, HSTS, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `frame-ancestors 'none'`.
 5. **Limits** — request timeouts; body size limits on JSON endpoints (uploads are streamed and exempt).
-6. **Rate limit** — login: 5 failures per 15 minutes per client.
-7. **Session auth** — cookie → SHA-256 → `sessions` table (cached in memory).
-8. **CSRF check** — `SameSite=Strict` cookie **and** a required `X-Requested-With: ashcloud` header on every non-GET request.
-9. **Role check** — everything is `admin` for now; the check exists so more users are possible later.
+6. **Rate limit** — login: 5 failures per 15 minutes per client. **Admin accounts are exempt by the owner's choice** (never locked out; failures are still logged and audited). Separately, at most 4 password checks run at once (each uses 64 MiB); extra attempts wait, never fail.
+7. **Session auth** — cookie → SHA-256 → `sessions` table (a sub-millisecond indexed lookup; add an in-memory cache only if measurements ever call for it). Using a session pushes its expiry forward, at most once an hour.
+8. **CSRF check** — `SameSite=Strict` cookie, Go's built-in `http.CrossOriginProtection` (`Sec-Fetch-Site`/`Origin`), **and** a required `X-Requested-With: ashcloud` header on every non-GET request.
+9. **Role check** — everything is `admin` for now; the check is added with the first admin-only route.
 10. **Handler** → **Service** → **Storage / DB**.
 
 Handlers only parse input and write output. Services hold the rules.
@@ -162,14 +162,18 @@ users     (id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL,   -- step 2 �
            role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
            created_at INTEGER NOT NULL) STRICT
 
-sessions  (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
+sessions  (id INTEGER PRIMARY KEY,                                  -- step 3 ✅
+           user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
            token_hash BLOB UNIQUE NOT NULL,      -- SHA-256 of the cookie, never the token itself
-           user_agent TEXT, ip TEXT,
+           user_agent TEXT NOT NULL, ip TEXT NOT NULL,
            created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,
-           expires_at INTEGER NOT NULL)
+           expires_at INTEGER NOT NULL) STRICT
 
-audit_log (id INTEGER PRIMARY KEY, user_id INTEGER, action TEXT NOT NULL,
-           path TEXT, ip TEXT, at INTEGER NOT NULL)
+audit_log (id INTEGER PRIMARY KEY,                                  -- step 3 ✅
+           user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+           action TEXT NOT NULL,                 -- login, login_failed, login_blocked, logout, password_reset, …
+           detail TEXT NOT NULL DEFAULT '',      -- e.g. the username a failed login tried, or a file path
+           ip TEXT NOT NULL, at INTEGER NOT NULL) STRICT
 ```
 
 Later phases add: `uploads` (resumable upload state, P2), `trash` (P2),
@@ -293,7 +297,7 @@ my phone.
 |---|---|---|
 | 1 ✅ | Go module, `ashcloud serve`, `GET /healthz`, `tailscale serve` | Phone on **mobile data** shows `ok` at the `ts.net` address. Proves the whole network path. |
 | 2 (built) | Config file, `ashcloud init`, SQLite + migrations, `user create`, `GET /readyz` | `/readyz` reports DB + storage OK. |
-| 3 | Login / logout / `me`, sessions, full middleware chain, login rate limit | Can log in from the phone; wrong passwords get rate-limited; cookie is HttpOnly/Secure/Strict. |
+| 3 (built) | Login / logout / `me`, sessions, full middleware chain, login rate limit (admins exempt), login test page, `user reset-password` | Can log in from the phone; wrong passwords get rate-limited; cookie is HttpOnly/Secure/Strict. |
 | 4 | List folder, download with `Range` | Browse folders, open a photo, scrub through a video on the phone. |
 | 5 | Upload, new folder, move/rename, delete | Upload a photo from the camera roll; rename it; delete it. |
 | 6 | Web UI: login screen, file browser, upload with progress bar, installable to home screen | Everything above works by tapping, no typing URLs. |
@@ -347,7 +351,7 @@ Layers, outermost first:
 1. **Tailscale** — only my own signed-in devices can reach the laptop at all. Nothing is exposed to the public internet.
 2. **HTTPS** — real certificate from `tailscale serve`; HSTS on.
 3. **Server only listens on `127.0.0.1`** — unreachable except through Tailscale.
-4. **Login** — argon2id password hash; 5 failures per 15 minutes then locked out; every login recorded in `audit_log`.
+4. **Login** — argon2id password hash; non-admin accounts locked out after 5 failures per 15 minutes per device; **admin accounts never locked out** (owner's choice — the password's strength and the 4-at-a-time check limit are what slow guessing); every login, failure and block recorded in `audit_log`.
 5. **Sessions** — random 256-bit token in an HttpOnly, Secure, `SameSite=Strict` cookie; only its hash is stored; can be revoked per device; expire after 30 days.
 6. **CSRF** — Strict cookie + required custom header on every change.
 7. **Files** — `os.Root` confines all file access to my storage folder; Windows name rules enforced; served files are sandboxed (§7).

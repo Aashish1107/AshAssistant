@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -54,6 +55,7 @@ func TestWindowsPathsSurviveEncoding(t *testing.T) {
 		DataDir:    `C:\AshCloud`,
 		StorageDir: `D:\new\table\it's mine`,
 		LogLevel:   "info",
+		SessionTTL: DefaultSessionTTL,
 	}
 	body, err := toml.Marshal(want)
 	if err != nil {
@@ -95,7 +97,7 @@ func TestLoadFillsDefaultsForMissingSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Listen != DefaultListen || got.LogLevel != "info" {
+	if got.Listen != DefaultListen || got.LogLevel != "info" || got.SessionTTL != DefaultSessionTTL {
 		t.Errorf("defaults not applied: %+v", got)
 	}
 }
@@ -122,11 +124,11 @@ func TestLoadRejectsBadTOML(t *testing.T) {
 }
 
 func TestValidateReportsEveryProblem(t *testing.T) {
-	err := Config{Listen: "8080", DataDir: "relative", StorageDir: "", LogLevel: "loud"}.Validate()
+	err := Config{Listen: "8080", DataDir: "relative", StorageDir: "", LogLevel: "loud", SessionTTL: "forever"}.Validate()
 	if err == nil {
 		t.Fatal("Validate = nil, want errors")
 	}
-	for _, want := range []string{"listen", "data_dir", "storage_dir", "log_level"} {
+	for _, want := range []string{"listen", "data_dir", "storage_dir", "log_level", "session_ttl"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error doesn't mention %s: %v", want, err)
 		}
@@ -151,5 +153,19 @@ func writeFile(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSessionTTL(t *testing.T) {
+	dir := t.TempDir()
+	c := Default(dir)
+	if got := c.SessionDuration(); got != 30*24*time.Hour {
+		t.Errorf("default SessionDuration = %v, want 720h", got)
+	}
+	for ttl, wantOK := range map[string]bool{"720h": true, "1h": true, "24h30m": true, "59m": false, "0": false, "-5h": false, "30d": false} {
+		c.SessionTTL = ttl
+		if err := c.Validate(); (err == nil) != wantOK {
+			t.Errorf("session_ttl = %q: Validate = %v, want ok=%v", ttl, err, wantOK)
+		}
 	}
 }

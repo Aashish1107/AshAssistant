@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/Aashish1107/AshAssistant/server/internal/auth"
 	"github.com/Aashish1107/AshAssistant/server/internal/config"
 	"github.com/Aashish1107/AshAssistant/server/internal/db"
 	"github.com/Aashish1107/AshAssistant/server/internal/httpapi"
@@ -69,7 +70,12 @@ func runServe(ctx context.Context, args []string, stderr io.Writer) error {
 	defer stop()
 
 	logger.Info("Ash Cloud started", "url", "http://"+ln.Addr().String(), "version", version, "settings", *configPath)
-	err = httpapi.Serve(ctx, ln, httpapi.NewRouter(logger, readiness), logger)
+	router := httpapi.NewRouter(httpapi.Deps{
+		Logger:    logger,
+		Readiness: readiness,
+		Auth:      auth.NewService(database, auth.Options{SessionTTL: cfg.SessionDuration(), Logger: logger}),
+	})
+	err = httpapi.Serve(ctx, ln, router, logger)
 	logger.Info("Ash Cloud stopped")
 	return err
 }

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Ash Cloud</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <h1>Ash Cloud</h1>
+    <p class="note">Login test page (Phase 1, step 3). The real app arrives in step 6.</p>
+
+    <p id="status" role="status">Checking…</p>
+
+    <form id="login" hidden>
+      <label>Username
+        <input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+      </label>
+      <label>Password
+        <input name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <button type="submit">Log in</button>
+    </form>
+
+    <section id="account" hidden>
+      <p>Logged in as <strong id="who"></strong> (<span id="role"></span>).</p>
+      <p class="note">This device stays logged in until <span id="expires"></span>, and longer if you keep using it.</p>
+      <button id="logout" type="button">Log out</button>
+    </section>
+
+    <p id="error" class="error" role="alert"></p>
+  </main>
+</body>
+</html>

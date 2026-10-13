@@ -8,17 +8,20 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/Aashish1107/AshAssistant/server/internal/auth"
 )
 
 func TestServeAnswersThenShutsDownCleanly(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	router, _ := newTestRouter(t, auth.Options{})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, NewRouter(logger, nil), logger) }()
+	go func() { done <- Serve(ctx, ln, router, logger) }()
 
 	resp, err := http.Get("http://" + ln.Addr().String() + "/healthz")
 	if err != nil {
@@ -49,7 +52,7 @@ func TestServeReturnsErrorWhenListenerFails(t *testing.T) {
 	}
 	ln.Close()
 
-	if err := Serve(context.Background(), ln, NewRouter(logger, nil), logger); err == nil {
+	if err := Serve(context.Background(), ln, http.NotFoundHandler(), logger); err == nil {
 		t.Fatal("Serve returned nil for a closed listener, want an error")
 	}
 }

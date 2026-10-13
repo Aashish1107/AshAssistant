@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -22,6 +23,9 @@ const FileName = "ashcloud.toml"
 // laptop (including Tailscale) can connect.
 const DefaultListen = "127.0.0.1:8080"
 
+// DefaultSessionTTL keeps a device logged in for 30 days after it was last used.
+const DefaultSessionTTL = "720h"
+
 // ErrNotFound means there is no settings file yet (`ashcloud init` creates it).
 var ErrNotFound = errors.New("settings file not found")
 
@@ -31,6 +35,7 @@ type Config struct {
 	DataDir    string `toml:"data_dir" comment:"Folder for the database and other server files."`
 	StorageDir string `toml:"storage_dir" comment:"Folder that holds your files (one subfolder per user)."`
 	LogLevel   string `toml:"log_level" comment:"How much to log: debug, info, warn or error."`
+	SessionTTL string `toml:"session_ttl" comment:"How long a device stays logged in after it was last used (720h = 30 days)."`
 }
 
 // DefaultDataDir is where `ashcloud init` puts everything unless told otherwise:
@@ -62,6 +67,7 @@ func Default(dataDir string) Config {
 		DataDir:    dataDir,
 		StorageDir: filepath.Join(dataDir, "storage"),
 		LogLevel:   "info",
+		SessionTTL: DefaultSessionTTL,
 	}
 }
 
@@ -75,6 +81,12 @@ func (c Config) SlogLevel() slog.Level {
 	var level slog.Level
 	_ = level.UnmarshalText([]byte(c.LogLevel))
 	return level
+}
+
+// SessionDuration converts session_ttl. Call Validate first.
+func (c Config) SessionDuration() time.Duration {
+	d, _ := time.ParseDuration(c.SessionTTL)
+	return d
 }
 
 // Validate reports every problem with the settings at once.
@@ -93,6 +105,9 @@ func (c Config) Validate() error {
 	if err := level.UnmarshalText([]byte(c.LogLevel)); err != nil {
 		problems = append(problems, fmt.Errorf("log_level = %q must be debug, info, warn or error", c.LogLevel))
 	}
+	if d, err := time.ParseDuration(c.SessionTTL); err != nil || d < time.Hour {
+		problems = append(problems, fmt.Errorf("session_ttl = %q must be a duration of at least 1h, like %q", c.SessionTTL, DefaultSessionTTL))
+	}
 	return errors.Join(problems...)
 }
 
@@ -107,7 +122,7 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 
-	c := Config{Listen: DefaultListen, LogLevel: "info"}
+	c := Config{Listen: DefaultListen, LogLevel: "info", SessionTTL: DefaultSessionTTL}
 	decoder := toml.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&c); err != nil {

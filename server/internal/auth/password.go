@@ -1,4 +1,4 @@
-// Package auth handles passwords. Sessions are added in Phase 1, step 3.
+// Package auth handles passwords, logins and sessions.
 package auth
 
 import (
@@ -48,11 +48,17 @@ func CheckPasswordRules(password string) error {
 // HashPassword returns an argon2id hash of password in the standard PHC
 // format, e.g. $argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>.
 func HashPassword(password string) string {
+	return hashPasswordWith(password, argonMemoryKiB, argonTime, argonThreads)
+}
+
+// hashPasswordWith lets tests make cheap hashes; VerifyPassword reads the
+// settings back out of the hash.
+func hashPasswordWith(password string, memoryKiB, time uint32, threads uint8) string {
 	salt := make([]byte, saltLen)
 	rand.Read(salt) // never fails: since Go 1.24 it crashes the program instead
-	key := argon2.IDKey([]byte(password), salt, argonTime, argonMemoryKiB, argonThreads, argonKeyLen)
+	key := argon2.IDKey([]byte(password), salt, time, memoryKiB, threads, argonKeyLen)
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
-		argon2.Version, argonMemoryKiB, argonTime, argonThreads,
+		argon2.Version, memoryKiB, time, threads,
 		base64.RawStdEncoding.EncodeToString(salt),
 		base64.RawStdEncoding.EncodeToString(key))
 }

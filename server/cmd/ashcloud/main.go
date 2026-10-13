@@ -23,6 +23,7 @@ Usage:
   ashcloud init [--data-dir DIR]        create the settings file, database and files folder
                                         (DIR defaults to %s)
   ashcloud user create [--admin] NAME   add a user; asks for their password
+  ashcloud user reset-password NAME     set a new password; logs that user out everywhere
   ashcloud serve [--listen ADDR]        start the server (Ctrl+C to stop)
   ashcloud version                      print the version
   ashcloud help                         show this help

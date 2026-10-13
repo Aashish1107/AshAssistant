@@ -45,6 +45,43 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (int64, 
 	return id, err
 }
 
+const getUserByUsername = `-- name: GetUserByUsername :one
+SELECT id, username, password_hash, role FROM users WHERE username = ?
+`
+
+type GetUserByUsernameRow struct {
+	ID           int64
+	Username     string
+	PasswordHash string
+	Role         string
+}
+
+func (q *Queries) GetUserByUsername(ctx context.Context, username string) (GetUserByUsernameRow, error) {
+	row := q.db.QueryRowContext(ctx, getUserByUsername, username)
+	var i GetUserByUsernameRow
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.Role,
+	)
+	return i, err
+}
+
+const setPasswordHash = `-- name: SetPasswordHash :exec
+UPDATE users SET password_hash = ? WHERE id = ?
+`
+
+type SetPasswordHashParams struct {
+	PasswordHash string
+	ID           int64
+}
+
+func (q *Queries) SetPasswordHash(ctx context.Context, arg SetPasswordHashParams) error {
+	_, err := q.db.ExecContext(ctx, setPasswordHash, arg.PasswordHash, arg.ID)
+	return err
+}
+
 const usernameTaken = `-- name: UsernameTaken :one
 SELECT EXISTS (SELECT 1 FROM users WHERE username = ?)
 `

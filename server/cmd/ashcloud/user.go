@@ -20,18 +20,30 @@ import (
 	"github.com/Aashish1107/AshAssistant/server/internal/storage"
 )
 
-const userUsage = "usage: ashcloud user create [--admin] [--config FILE] NAME"
+const userUsage = `usage: ashcloud user create [--admin] [--config FILE] NAME
+       ashcloud user reset-password [--config FILE] NAME`
 
 var usernamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,31}$`)
 
 func runUser(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
-	if len(args) == 0 || args[0] != "create" {
+	if len(args) == 0 {
 		return errors.New(userUsage)
 	}
+	switch args[0] {
+	case "create":
+		return runUserCreate(ctx, args[1:], stdin, stdout, stderr)
+	case "reset-password":
+		return runUserResetPassword(ctx, args[1:], stdin, stdout, stderr)
+	default:
+		return errors.New(userUsage)
+	}
+}
+
+func runUserCreate(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	flags := newFlagSet("user create", stderr)
 	admin := flags.Bool("admin", false, "give the user full control (your own account should be an admin)")
 	configPath := flags.String("config", config.DefaultPath(), "settings file")
-	positional, err := parseInterspersed(flags, args[1:])
+	positional, err := parseInterspersed(flags, args)
 	if err != nil {
 		return err
 	}
@@ -75,6 +87,51 @@ func runUser(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 		return err
 	}
 	fmt.Fprintf(stdout, "Created %s %q (id %d).\nFiles folder: %s\n", role, username, id, dir)
+	return nil
+}
+
+// runUserResetPassword sets a new password and logs the user out everywhere.
+// It's run on the laptop itself, so it also works when you're locked out.
+func runUserResetPassword(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	flags := newFlagSet("user reset-password", stderr)
+	configPath := flags.String("config", config.DefaultPath(), "settings file")
+	positional, err := parseInterspersed(flags, args)
+	if err != nil {
+		return err
+	}
+	if len(positional) != 1 {
+		return errors.New(userUsage)
+	}
+	username := strings.ToLower(positional[0])
+
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	database, _, err := openDatabase(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+
+	// Check before asking for a password, so nobody types one for nothing.
+	exists, err := db.New(database).UsernameTaken(ctx, username)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("there is no user named %q", username)
+	}
+
+	password, err := readNewPassword(stdin, stdout)
+	if err != nil {
+		return err
+	}
+	ended, err := auth.NewService(database, auth.Options{}).ResetPassword(ctx, username, password, auth.Client{IP: "command line"})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Password changed for %q. Logged out of %d device(s); log in again with the new password.\n", username, ended)
 	return nil
 }
 

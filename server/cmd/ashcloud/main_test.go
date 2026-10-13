@@ -110,7 +110,7 @@ func TestInitCreatesEverything(t *testing.T) {
 			t.Errorf("%s not created: %v", path, err)
 		}
 	}
-	for _, want := range []string{"(created)", "schema updated to version 1", "ashcloud user create --config"} {
+	for _, want := range []string{"(created)", "schema updated to version ", "ashcloud user create --config"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("output missing %q:\n%s", want, stdout)
 		}
@@ -235,9 +235,56 @@ func TestUserCreateRejections(t *testing.T) {
 }
 
 func TestUserNeedsASubcommand(t *testing.T) {
-	_, _, err := ashcloud(t, "", "user", "delete", "bob")
-	if err == nil || !strings.Contains(err.Error(), "usage: ashcloud user create") {
-		t.Fatalf("got %v, want usage", err)
+	for _, args := range [][]string{{"user"}, {"user", "delete", "bob"}} {
+		_, _, err := ashcloud(t, "", args...)
+		if err == nil || !strings.Contains(err.Error(), "ashcloud user reset-password") {
+			t.Errorf("%v: got %v, want usage", args, err)
+		}
+	}
+}
+
+// ---- user reset-password -----------------------------------------------
+
+func TestUserResetPassword(t *testing.T) {
+	configPath := initDataDir(t)
+	if _, _, err := ashcloud(t, testPassword+"\n"+testPassword+"\n", "user", "create", "--config", configPath, "--admin", "aashish"); err != nil {
+		t.Fatal(err)
+	}
+	const newPassword = "a brand new password"
+	stdout, _, err := ashcloud(t, newPassword+"\n"+newPassword+"\n", "user", "reset-password", "--config", configPath, "Aashish")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, `Password changed for "aashish". Logged out of 0 device(s)`) {
+		t.Errorf("output:\n%s", stdout)
+	}
+
+	var hash string
+	if err := openTestDB(t, configPath).QueryRow("SELECT password_hash FROM users WHERE username = 'aashish'").Scan(&hash); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := auth.VerifyPassword(newPassword, hash); !ok {
+		t.Error("new password doesn't verify")
+	}
+	if ok, _ := auth.VerifyPassword(testPassword, hash); ok {
+		t.Error("old password still verifies")
+	}
+}
+
+func TestUserResetPasswordRejections(t *testing.T) {
+	configPath := initDataDir(t)
+	for name, tc := range map[string]struct {
+		stdin   string
+		args    []string
+		wantErr string
+	}{
+		"unknown user (asks no password)": {"", []string{"nobody"}, `there is no user named "nobody"`},
+		"no name":                         {"", nil, "usage:"},
+	} {
+		args := append([]string{"user", "reset-password", "--config", configPath}, tc.args...)
+		if _, _, err := ashcloud(t, tc.stdin, args...); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("%s: got %v, want an error containing %q", name, err, tc.wantErr)
+		}
 	}
 }
 
@@ -369,6 +416,72 @@ func TestServeEndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "readiness check failed") {
 		t.Errorf("failure not logged:\n%s", logs)
+	}
+}
+
+func TestServeLoginEndToEnd(t *testing.T) {
+	configPath := initDataDir(t)
+	if _, _, err := ashcloud(t, testPassword+"\n"+testPassword+"\n", "user", "create", "--config", configPath, "--admin", "aashish"); err != nil {
+		t.Fatal(err)
+	}
+	url, logs := startServer(t, configPath)
+
+	post := func(path, body string, cookie *http.Cookie) *http.Response {
+		t.Helper()
+		req, _ := http.NewRequest("POST", url+path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Requested-With", "ashcloud")
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp
+	}
+	me := func(cookie *http.Cookie) int {
+		t.Helper()
+		req, _ := http.NewRequest("GET", url+"/api/v1/me", nil)
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	resp := post("/api/v1/auth/login", `{"username": "aashish", "password": "`+testPassword+`"}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("login: %d", resp.StatusCode)
+	}
+	var cookie *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == "ashcloud_session" {
+			cookie = c
+		}
+	}
+	if cookie == nil {
+		t.Fatal("no session cookie")
+	}
+	if status := me(cookie); status != http.StatusOK {
+		t.Fatalf("/api/v1/me with cookie: %d", status)
+	}
+
+	// Resetting the password from the command line logs this device out.
+	const newPassword = "a brand new password"
+	if _, _, err := ashcloud(t, newPassword+"\n"+newPassword+"\n", "user", "reset-password", "--config", configPath, "aashish"); err != nil {
+		t.Fatal(err)
+	}
+	if status := me(cookie); status != http.StatusUnauthorized {
+		t.Fatalf("/api/v1/me after password reset: %d, want 401", status)
+	}
+	if !strings.Contains(logs.String(), "path=/api/v1/auth/login status=200") {
+		t.Errorf("login not in the access log:\n%s", logs)
 	}
 }
 

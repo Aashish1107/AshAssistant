@@ -4,6 +4,30 @@
 
 package db
 
+import (
+	"database/sql"
+)
+
+type AuditLog struct {
+	ID     int64
+	UserID sql.NullInt64
+	Action string
+	Detail string
+	Ip     string
+	At     int64
+}
+
+type Session struct {
+	ID         int64
+	UserID     int64
+	TokenHash  []byte
+	UserAgent  string
+	Ip         string
+	CreatedAt  int64
+	LastSeenAt int64
+	ExpiresAt  int64
+}
+
 type User struct {
 	ID           int64
 	Username     string

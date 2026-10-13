@@ -1,24 +1,22 @@
 package httpapi
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Aashish1107/AshAssistant/server/internal/auth"
 )
 
 func getReadyz(t *testing.T, checks []Check) (*httptest.ResponseRecorder, readyResponse, string) {
 	t.Helper()
-	var logs bytes.Buffer
-	router := NewRouter(slog.New(slog.NewTextHandler(&logs, nil)), checks)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	router, logs := newTestRouter(t, auth.Options{}, checks...)
+	rec := send(t, router, request{method: "GET", path: "/readyz"})
 
 	var body readyResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
