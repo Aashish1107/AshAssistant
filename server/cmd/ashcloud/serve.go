@@ -13,6 +13,7 @@ import (
 	"github.com/Aashish1107/AshAssistant/server/internal/auth"
 	"github.com/Aashish1107/AshAssistant/server/internal/config"
 	"github.com/Aashish1107/AshAssistant/server/internal/db"
+	"github.com/Aashish1107/AshAssistant/server/internal/files"
 	"github.com/Aashish1107/AshAssistant/server/internal/httpapi"
 	"github.com/Aashish1107/AshAssistant/server/internal/storage"
 )
@@ -74,6 +75,7 @@ func runServe(ctx context.Context, args []string, stderr io.Writer) error {
 		Logger:    logger,
 		Readiness: readiness,
 		Auth:      auth.NewService(database, auth.Options{SessionTTL: cfg.SessionDuration(), Logger: logger}),
+		Files:     files.NewStore(cfg.StorageDir),
 	})
 	err = httpapi.Serve(ctx, ln, router, logger)
 	logger.Info("Ash Cloud stopped")

@@ -3,12 +3,11 @@
 The Go server behind Ash Cloud. See [`docs/PLAN.md`](../docs/PLAN.md) for the
 full plan.
 
-**Current stage: Phase 1, step 3.** You can now log in and out from your
-phone, and a device stays logged in while you keep using it. Every request
-passes through the server's full set of security checks.
+**Current stage: Phase 1, step 4.** You can log in from your phone, browse
+the folders in your files folder, open photos and documents, and play videos.
+You can drag a video's slider to any point without downloading the rest.
 
-The login screen at `/` is a simple **test page**. The real app replaces it
-in step 6.
+The page at `/` is a simple **test page**. The real app replaces it in step 6.
 
 ---
 
@@ -34,31 +33,53 @@ instead.)
 .\ashcloud.exe serve
 ```
 
-The first start after updating prints `database schema updated versions=[2]`.
-That's the new sessions and audit-log tables being added automatically. Your
-account and settings are kept.
+The first start after updating prints `database schema updated` with the new
+versions (`[3]`, or `[2 3]` if you skipped step 3). Those are added
+automatically. Your account, password, settings and sessions are kept, and
+your admin account's ID stays `1`.
 
-### 3. Log in on the laptop
+### 3. Put some files in your folder
 
-Open <http://127.0.0.1:8080/>, enter your username (`aashish`) and password,
-and tap **Log in**. You'll see:
+Your files live in **`C:\AshCloud\storage\users\1\`**. Copy anything into it
+with File Explorer, including folders. For the video test, copy a video from
+your phone, for example an iPhone `.MOV` or an Android `.mp4`, ideally a
+minute or longer.
 
-> Logged in as **aashish** (admin).
-> This device stays logged in until <date 30 days from now>, and longer if you keep using it.
+### 4. Browse and play on the phone
 
-Reload the page: you're still logged in. Tap **Log out**, reload: you're logged out.
+With **Wi-Fi off** and the **Tailscale app on**, open
+`https://<laptop-name>.<tailnet-name>.ts.net/` and log in if asked. Then:
 
-### 4. Log in from the phone
+1. Your folders and files are listed, folders first. Tap a folder to open
+   it, and use the path at the top (Home / …) or the phone's Back button to go up.
+2. Tap a **photo** or **PDF** to view it, and a **text file** to read it.
+   Tap **⬇** next to any file to download it.
+3. Tap your **video**. It opens in the phone's player. Press play, then
+   **drag the slider** to near the end, then back to the middle.
 
-With **Wi-Fi off** and the **Tailscale app on**, open:
+**Step 4 is done** when the video starts within a few seconds and resumes
+within about 1–2 seconds after each drag. In the server window on the laptop
+you'll see several lines like this one:
 
 ```
-https://<laptop-name>.<tailnet-name>.ts.net/
+msg=request method=GET path=/api/v1/files/content status=206 bytes=8244224 ...
 ```
 
-Log in the same way. **Step 3 is done** when the phone shows
-"Logged in as aashish", stays logged in after you close and reopen the
-browser, and logs out when you tap **Log out**.
+`status=206` means "here's the part you asked for". The phone fetches only
+the pieces it plays, not the whole file.
+
+### Which videos play in the browser
+
+| Phone | Plays | Doesn't play (downloads instead) |
+|---|---|---|
+| iPhone (Safari) | `.MOV`, `.MP4`: H.264 or HEVC, i.e. everything the iPhone camera records | `.MKV`, `.AVI` |
+| Android (Chrome) | `.MP4` (H.264), `.WEBM`; HEVC depends on the phone | `.MKV` (usually), `.AVI` |
+
+How smoothly a video plays depends on your **home internet's upload speed**.
+The laptop sends the video *up* that connection. 1080p phone video (about
+10–20 Mbps) needs roughly 25 Mbps of upload to play without pausing; 4K
+(about 40–60 Mbps) needs roughly 70 Mbps. Slower connections still play and
+scrub, but pause to buffer.
 
 ---
 
@@ -87,6 +108,13 @@ browser, and logs out when you tap **Log out**.
   must also carry the header `X-Requested-With: ashcloud`.
 - **Every response** carries a strict Content-Security-Policy (only this
   server's own scripts), plus HSTS, `nosniff`, no framing and no referrer.
+- **Your files are sandboxed.** A file opened in the browser can never run
+  scripts as part of this site, so an `.html` or `.svg` someone sends you
+  can't act with your login. HTML is shown as plain text. Only PDFs skip the
+  sandbox, because browser PDF viewers refuse to run inside one.
+- **Each account only sees its own folder.** Every file access goes through
+  Go's `os.Root`, which refuses `..`, Windows device names like `NUL`, and
+  shortcuts pointing outside the folder.
 - **Error messages.** Errors never show internal details. Each response
   has an `X-Request-Id`, and the server log has the full story under that ID.
 - **Audit log.** Logins, failed logins, blocked attempts, logouts and password
@@ -118,6 +146,8 @@ ashcloud help                           show help
 | `POST /api/v1/auth/login` | no | `{"username", "password"}` → `200` + session cookie; `401` wrong username or password; `429` too many wrong passwords (not for admins). |
 | `POST /api/v1/auth/logout` | no | `204`; ends this device's session if there is one. |
 | `GET /api/v1/me` | **yes** | `200` `{"user": {...}, "expires_at": ...}`, or `401`. |
+| `GET /api/v1/files?path=/Photos` | **yes** | `200` `{"path": "/Photos", "entries": [{"name", "path", "type": "folder"\|"file", "size", "modified", "content_type"}]}`. Folders first, then files, sorted by name. |
+| `GET /api/v1/files/content?path=/Videos/trip.mov` | **yes** | The file, as a download. Add `&inline=1` to open it in the browser instead: images, video, audio and PDFs display, text files show as plain text, and anything else still downloads. Supports `Range` (`206`), `ETag`/`If-None-Match` (`304`), `If-Range` and `HEAD`. No time limit. |
 
 Errors always look like
 `{"error": {"code": "invalid_credentials", "message": "Wrong username or password"}}`.
@@ -149,6 +179,10 @@ shown. A misspelled one stops the server with a message naming it.
 | "Too many wrong passwords from this device" | Only happens for non-admin accounts. Wait the number of minutes shown. |
 | "Requests from other websites aren't allowed" when logging in | Your browser is too old to send the `Sec-Fetch-Site` header (it's in Safari 16.4+, Chrome 76+). Update the phone's browser. |
 | Logged out unexpectedly | Something ended the session. Either the password was reset, the device wasn't used for 30 days, or the browser's cookies were cleared. Log in again. |
+| A video won't play, or downloads instead | The browser can't play that format (see the table above). `.MKV` and `.AVI` never play in a browser. |
+| A video keeps pausing to buffer | Your home internet's upload speed is lower than the video's bitrate. On the laptop, run `tailscale ping <phone-name>`. If it says `via DERP`, the connection is relayed: enable UPnP on your router. |
+| A file on the laptop doesn't show up | Windows' own `desktop.ini` and `Thumbs.db` are hidden on purpose. So are names Windows itself can't use, and shortcuts that point outside your folder. |
+| "There's nothing at that path" | The file or folder was moved or renamed on the laptop. Go back to Home and browse again. |
 | Page says "Couldn't reach the server" | The server isn't running, or the phone's Tailscale app is off. |
 | Phone: `502 Bad Gateway` | The server isn't running. Start it. |
 | Phone: site can't be found | The Tailscale app is off on the phone, or MagicDNS is off. |
@@ -226,7 +260,9 @@ Code layout:
 cmd/ashcloud/         CLI: init, user create/reset-password, serve, version, help
 internal/config/      ashcloud.toml: defaults, loading, validation, writing
 internal/db/          SQLite: opening, migrations/, queries/, sqlc output
-internal/auth/        passwords (argon2id), login, sessions, lockout, audit log
+internal/auth/        passwords (argon2id), users, login, sessions, lockout, audit log
+internal/ids/         Nano IDs for new users
+internal/files/       browsing and reading files: path rules, content types, os.Root
 internal/storage/     files folder: per-user folders, writability check
 internal/httpapi/     routes, middleware chain, JSON errors, server start/stop
 internal/webui/       the browser page, built into the binary (test page until step 6)

@@ -80,3 +80,49 @@ button:disabled { opacity: 0.6; cursor: wait; }
 #account p { margin: 0; }
 
 .error { color: var(--error); min-height: 1.5em; }
+
+#status:empty { display: none; }
+
+/* ---- files ---- */
+
+#files {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+#crumbs { font-weight: 600; padding: 4px 0 8px; overflow-wrap: anywhere; }
+
+#entries { list-style: none; margin: 0; padding: 0; }
+
+#entries li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  min-height: 48px;
+}
+
+#entries .name {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 0;
+  overflow-wrap: anywhere;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+#entries .meta { color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+
+#entries .download {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  text-decoration: none;
+  color: var(--accent);
+}
+
+a { color: var(--accent); }

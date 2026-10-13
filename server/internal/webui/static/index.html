@@ -11,7 +11,7 @@
 <body>
   <main>
     <h1>Ash Cloud</h1>
-    <p class="note">Login test page (Phase 1, step 3). The real app arrives in step 6.</p>
+    <p class="note">Test page (Phase 1, step 4). The real app arrives in step 6.</p>
 
     <p id="status" role="status">Checking…</p>
 
@@ -24,6 +24,12 @@
       </label>
       <button type="submit">Log in</button>
     </form>
+
+    <section id="files" hidden aria-label="Your files">
+      <nav id="crumbs" aria-label="Folder"></nav>
+      <ul id="entries"></ul>
+      <p id="empty" class="note" hidden></p>
+    </section>
 
     <section id="account" hidden>
       <p>Logged in as <strong id="who"></strong> (<span id="role"></span>).</p>

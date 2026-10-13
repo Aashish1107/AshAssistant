@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/Aashish1107/AshAssistant/server/internal/auth"
 	"github.com/Aashish1107/AshAssistant/server/internal/db"
+	"github.com/Aashish1107/AshAssistant/server/internal/files"
 )
 
 const (
@@ -64,11 +66,45 @@ func newTestRouter(t *testing.T, opts auth.Options, checks ...Check) (http.Handl
 	queries.CreateUser(ctx, db.CreateUserParams{ID: auth.FirstAdminID, Username: "aashish", PasswordHash: adminHash(), Role: auth.RoleAdmin, CreatedAt: 1})
 	queries.CreateUser(ctx, db.CreateUserParams{ID: guestID, Username: "guest", PasswordHash: guestHash(), Role: auth.RoleUser, CreatedAt: 1})
 
+	storageDir := t.TempDir()
+	writeFixtures(t, filepath.Join(storageDir, "users", auth.FirstAdminID))
+
 	logs := &syncBuffer{}
 	logger := slog.New(slog.NewTextHandler(logs, nil))
 	opts.Logger = logger
-	router := NewRouter(Deps{Logger: logger, Readiness: checks, Auth: auth.NewService(database, opts)})
+	router := NewRouter(Deps{Logger: logger, Readiness: checks, Auth: auth.NewService(database, opts), Files: files.NewStore(storageDir)})
 	return router, logs
+}
+
+// videoBytes stands in for a video: 1000 bytes, each its own offset mod 256,
+// so any range's content is predictable.
+var videoBytes = func() []byte {
+	b := make([]byte, 1000)
+	for i := range b {
+		b[i] = byte(i)
+	}
+	return b
+}()
+
+// writeFixtures fills the admin's folder with a few files.
+func writeFixtures(t *testing.T, home string) {
+	t.Helper()
+	for path, body := range map[string][]byte{
+		"Videos/trip.mov":      videoBytes,
+		"Photos/beach.jpg":     []byte("jpeg"),
+		"Docs/page.html":       []byte("<script>alert(1)</script>"),
+		"Docs/scan.pdf":        []byte("%PDF-1.7"),
+		"Docs/archive.zip":     []byte("PK"),
+		"Docs/résumé 2026.txt": []byte("hello"),
+	} {
+		full := filepath.Join(home, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // request describes one call to the router, as a browser on this site would

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Aashish1107/AshAssistant/server/internal/auth"
+	"github.com/Aashish1107/AshAssistant/server/internal/files"
 )
 
 // sessionCookie holds the session token. It is:
@@ -22,6 +23,7 @@ const sessionCookie = "ashcloud_session"
 type api struct {
 	logger *slog.Logger
 	auth   *auth.Service
+	files  *files.Store
 }
 
 type sessionKey struct{}

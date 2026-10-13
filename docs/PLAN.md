@@ -4,9 +4,10 @@ A private cloud that runs on my Windows laptop. I use it **only through a web
 browser**, from my phone, from anywhere. Built for one person, but designed so
 it could grow to more users without a rewrite.
 
-Status: **Phase 1, step 3 built** — login/logout, sessions, the full middleware chain
-and a login test page. It is done once you can log in and out from the phone
-([`server/README.md`](../server/README.md)). Next: step 4.
+Status: **Phase 1, step 4 built** — browse folders and open or stream files (video
+scrubbing via Range requests), plus Nano ID user IDs. It is done once a video from
+the phone plays and scrubs on the phone ([`server/README.md`](../server/README.md)).
+Next: step 5.
 
 ---
 
@@ -239,8 +240,12 @@ Conventions:
 | Terminal (P4) | `WS /terminal`, `POST /ash` |
 
 ### File download safety
-User files are served with `Content-Security-Policy: sandbox` and
-`nosniff`, so an uploaded `.html` or `.svg` can never run scripts as the app.
+User files are served with `Content-Security-Policy: sandbox allow-same-origin`
+and `nosniff`. That sandbox disables all scripts, forms and pop-ups, so an
+uploaded `.html` or `.svg` can never run scripts as the app. `allow-same-origin`
+keeps the file's real origin, which a video opened directly needs: without it,
+the player's own requests would lose the `SameSite=Strict` session cookie. PDFs
+skip the sandbox because browser PDF viewers refuse to run inside one.
 `?inline=1` shows images, video, audio and PDF; text and code are shown as plain
 text; everything else downloads.
 
@@ -304,7 +309,7 @@ my phone.
 | 1 ✅ | Go module, `ashcloud serve`, `GET /healthz`, `tailscale serve` | Phone on **mobile data** shows `ok` at the `ts.net` address. Proves the whole network path. |
 | 2 (built) | Config file, `ashcloud init`, SQLite + migrations, `user create`, `GET /readyz` | `/readyz` reports DB + storage OK. |
 | 3 (built) | Login / logout / `me`, sessions, full middleware chain, login rate limit (admins exempt), login test page, `user reset-password` | Can log in from the phone; wrong passwords get rate-limited; cookie is HttpOnly/Secure/Strict. |
-| 4 | List folder, download with `Range` | Browse folders, open a photo, scrub through a video on the phone. |
+| 4 (built) | List folder, download with `Range` | Browse folders, open a photo, scrub through a video on the phone. |
 | 5 | Upload, new folder, move/rename, delete | Upload a photo from the camera roll; rename it; delete it. |
 | 6 | Web UI: login screen, file browser, upload with progress bar, installable to home screen | Everything above works by tapping, no typing URLs. |
 | 7 | Windows service + CI (lint, tests, build `ashcloud.exe`) | Reboot the laptop → it comes back by itself; CI is green. |
