@@ -5,9 +5,10 @@ browser**, from my phone, from anywhere. Built for one person, but designed so
 it could grow to more users without a rewrite.
 
 Status: **Phase 1, step 4 built** — browse folders and open or stream files (video
-scrubbing via Range requests), plus Nano ID user IDs. It is done once a video from
-the phone plays and scrubs on the phone ([`server/README.md`](../server/README.md)).
-Next: step 5.
+scrubbing via Range requests), plus Nano ID user IDs and, pulled forward from
+Phase 3, a video player with −10 s / +10 s and audio track switching. Step 4 is
+done once a video from the phone plays and scrubs on the phone
+([`server/README.md`](../server/README.md)). Next: step 5.
 
 ---
 
@@ -49,6 +50,7 @@ Next: step 5.
 | Windows service | `kardianos/service` | `ashcloud service install` → starts at boot. |
 | Web UI | **Svelte + TypeScript + Vite** | Tiny bundles → fast on phones. Built files are embedded in the Go binary with `go:embed`. |
 | Remote access | **Tailscale** + `tailscale serve` | Encrypted, works behind any router/mobile network, real HTTPS certificate, no ports opened, usually a direct phone↔laptop connection. |
+| Media | `ffmpeg` / `ffprobe` (installed with `winget install Gyan.FFmpeg`), run as separate programs | Lists a video's audio tracks and extracts one for the player. Optional: without it, only audio track switching is off. |
 | Later phases | `gopsutil` + `distatus/battery` (status), `tus/tusd` (resumable uploads), `coder/websocket` (live updates, terminal), Windows ConPTY (terminal), `xterm.js` (terminal UI), `fsnotify` (file watcher), `go-webauthn` (passkeys, optional) | |
 
 **Why Go over Python:** Python (FastAPI) would work for one person, but needs a
@@ -220,6 +222,8 @@ Conventions:
 | `GET /api/v1/trash` · `POST /api/v1/trash/restore` · `DELETE /api/v1/trash` | Trash: list, restore, empty | trash, Storage | 2 |
 | `GET /api/v1/system/status` | CPU, RAM, disk, battery, uptime, Tailscale status | OS | 2 |
 | `GET /metrics` (port 9090 only) | Prometheus metrics: latency, errors, bytes | — | 2 |
+| `GET /api/v1/media/info?path=` | A video's audio tracks (ffprobe) and whether they can be switched | ffprobe, memory cache | 3 ✅ (early) |
+| `POST /api/v1/media/audio` · `GET /api/v1/media/audio?path=&track=` | Extract one audio track (ffmpeg; copy, or AAC for AC3/DTS…) and play it with `Range` | ffmpeg, `cache\audio\` | 3 ✅ (early) |
 | `GET /api/v1/files/thumbnail?path=&size=` | Cached thumbnails (incl. iPhone HEIC) | cache, Storage | 3 |
 | `GET /api/v1/search?q=` | Search file names | file_index (FTS5) | 3 |
 | `POST /api/v1/files/zip` | Download several files / a folder as a streamed zip | Storage | 3 |
@@ -255,7 +259,7 @@ text; everything else downloads.
 
 1. **Install tools** (PowerShell):
    ```powershell
-   winget install GoLang.Go OpenJS.NodeJS.LTS Git.Git tailscale.tailscale
+   winget install GoLang.Go OpenJS.NodeJS.LTS Git.Git tailscale.tailscale Gyan.FFmpeg
    ```
 2. **Tailscale on the laptop**: sign in. In the tray icon → Preferences, turn on **Run unattended** (keeps it connected when nobody is logged in).
 3. **Tailscale on the phone**: install the Tailscale app, sign in with the **same account**, leave it on.
@@ -324,7 +328,13 @@ change password · Status screen (CPU, RAM, disk, battery, Tailscale) · metrics
 on `:9090` · log rotation · nightly backups (§13) · polished home-screen app.
 
 ### Phase 3 — Fast with photos and videos
-Thumbnails (iPhone HEIC via `ffmpeg`) · file-name search (SQLite FTS5) · folder
+**Built early:** video player with −10 s / +10 s, full screen with visible
+controls, and audio track switching. Chrome on Android plays only a video's
+first audio track, so the server extracts the chosen track with ffmpeg (cached
+in `C:\AshCloud\cache\audio\`, pruned after 30 days unused) and the player
+plays it in sync with the muted video. See `server/README.md` → *The video player*.
+
+Still to do: thumbnails (iPhone HEIC via `ffmpeg`) · file-name search (SQLite FTS5) · folder
 download as zip · live updates over WebSocket · `fsnotify` watcher so files
 added on the laptop are indexed immediately.
 

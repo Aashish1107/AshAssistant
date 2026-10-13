@@ -36,6 +36,7 @@ type Config struct {
 	StorageDir string `toml:"storage_dir" comment:"Folder that holds your files (one subfolder per user)."`
 	LogLevel   string `toml:"log_level" comment:"How much to log: debug, info, warn or error."`
 	SessionTTL string `toml:"session_ttl" comment:"How long a device stays logged in after it was last used (720h = 30 days)."`
+	FFmpegDir  string `toml:"ffmpeg_dir" comment:"Folder containing ffmpeg and ffprobe, used to switch a video's audio track. Empty: find them on the PATH."`
 }
 
 // DefaultDataDir is where `ashcloud init` puts everything unless told otherwise:
@@ -71,6 +72,11 @@ func Default(dataDir string) Config {
 	}
 }
 
+// CacheDir holds files the server can recreate, such as extracted audio tracks.
+func (c Config) CacheDir() string {
+	return filepath.Join(c.DataDir, "cache")
+}
+
 // DatabasePath is the SQLite file inside the data folder.
 func (c Config) DatabasePath() string {
 	return filepath.Join(c.DataDir, "ashcloud.db")
@@ -104,6 +110,9 @@ func (c Config) Validate() error {
 	var level slog.Level
 	if err := level.UnmarshalText([]byte(c.LogLevel)); err != nil {
 		problems = append(problems, fmt.Errorf("log_level = %q must be debug, info, warn or error", c.LogLevel))
+	}
+	if c.FFmpegDir != "" && !filepath.IsAbs(c.FFmpegDir) {
+		problems = append(problems, fmt.Errorf("ffmpeg_dir = %q must be a full path, or empty", c.FFmpegDir))
 	}
 	if d, err := time.ParseDuration(c.SessionTTL); err != nil || d < time.Hour {
 		problems = append(problems, fmt.Errorf("session_ttl = %q must be a duration of at least 1h, like %q", c.SessionTTL, DefaultSessionTTL))

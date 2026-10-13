@@ -16,6 +16,7 @@ import (
 	"github.com/Aashish1107/AshAssistant/server/internal/auth"
 	"github.com/Aashish1107/AshAssistant/server/internal/db"
 	"github.com/Aashish1107/AshAssistant/server/internal/files"
+	"github.com/Aashish1107/AshAssistant/server/internal/media"
 )
 
 const (
@@ -53,6 +54,15 @@ func (b *syncBuffer) String() string {
 // "aashish" and a regular user "guest", plus everything it logged.
 func newTestRouter(t *testing.T, opts auth.Options, checks ...Check) (http.Handler, *syncBuffer) {
 	t.Helper()
+	tools, toolsErr := media.FindTools("")
+	router, logs, _ := buildTestRouter(t, opts, tools, toolsErr, checks...)
+	return router, logs
+}
+
+// buildTestRouter is newTestRouter with a chosen ffmpeg (toolsErr != nil
+// means "not installed"). It also returns the admin's files folder.
+func buildTestRouter(t *testing.T, opts auth.Options, tools media.Tools, toolsErr error, checks ...Check) (http.Handler, *syncBuffer, string) {
+	t.Helper()
 	ctx := context.Background()
 	database, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -67,13 +77,24 @@ func newTestRouter(t *testing.T, opts auth.Options, checks ...Check) (http.Handl
 	queries.CreateUser(ctx, db.CreateUserParams{ID: guestID, Username: "guest", PasswordHash: guestHash(), Role: auth.RoleUser, CreatedAt: 1})
 
 	storageDir := t.TempDir()
-	writeFixtures(t, filepath.Join(storageDir, "users", auth.FirstAdminID))
+	home := filepath.Join(storageDir, "users", auth.FirstAdminID)
+	writeFixtures(t, home)
 
 	logs := &syncBuffer{}
 	logger := slog.New(slog.NewTextHandler(logs, nil))
 	opts.Logger = logger
-	router := NewRouter(Deps{Logger: logger, Readiness: checks, Auth: auth.NewService(database, opts), Files: files.NewStore(storageDir)})
-	return router, logs
+	library, err := media.NewLibrary(ctx, tools, toolsErr, filepath.Join(t.TempDir(), "cache", "audio"), logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(Deps{
+		Logger:    logger,
+		Readiness: checks,
+		Auth:      auth.NewService(database, opts),
+		Files:     files.NewStore(storageDir),
+		Media:     library,
+	})
+	return router, logs, home
 }
 
 // videoBytes stands in for a video: 1000 bytes, each its own offset mod 256,

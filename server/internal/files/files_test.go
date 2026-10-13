@@ -248,3 +248,22 @@ func TestShortcutsInsideTheFolderWorkButNotOutside(t *testing.T) {
 		}
 	}
 }
+
+func TestLocal(t *testing.T) {
+	store, home := newTestStore(t)
+	local, err := store.Local("1", "Videos//trip.mov")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local.Path != "/Videos/trip.mov" || local.Local != filepath.Join(home, "Videos", "trip.mov") || local.Size != 1000 || local.ContentType != "video/quicktime" {
+		t.Errorf("Local = %+v", local)
+	}
+	if !filepath.IsAbs(local.Local) {
+		t.Errorf("Local path %q isn't absolute", local.Local)
+	}
+	for path, want := range map[string]error{"/Videos": ErrIsAFolder, "/nope.mp4": ErrNotFound, "/../x": ErrBadPath} {
+		if _, err := store.Local("1", path); !errors.Is(err, want) {
+			t.Errorf("Local(%q) = %v, want %v", path, err, want)
+		}
+	}
+}

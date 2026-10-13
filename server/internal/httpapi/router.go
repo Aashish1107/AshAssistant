@@ -9,6 +9,7 @@ import (
 
 	"github.com/Aashish1107/AshAssistant/server/internal/auth"
 	"github.com/Aashish1107/AshAssistant/server/internal/files"
+	"github.com/Aashish1107/AshAssistant/server/internal/media"
 	"github.com/Aashish1107/AshAssistant/server/internal/webui"
 )
 
@@ -32,6 +33,7 @@ type Deps struct {
 	Readiness []Check // what /readyz checks
 	Auth      *auth.Service
 	Files     *files.Store
+	Media     *media.Library
 }
 
 // NewRouter returns the server's HTTP handler: every route, wrapped in the
@@ -40,7 +42,7 @@ type Deps struct {
 //	request ID → access log → panic recovery → security headers →
 //	cross-origin check → CSRF header check → route (→ login check, API timeout)
 func NewRouter(deps Deps) http.Handler {
-	a := &api{logger: deps.Logger, auth: deps.Auth, files: deps.Files}
+	a := &api{logger: deps.Logger, auth: deps.Auth, files: deps.Files, media: deps.Media}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", handleHealthz)
@@ -55,6 +57,9 @@ func NewRouter(deps Deps) http.Handler {
 	mux.Handle("GET /api/v1/me", withTimeout(a.requireLogin(http.HandlerFunc(a.me))))
 	mux.Handle("GET /api/v1/files", withTimeout(a.requireLogin(http.HandlerFunc(a.listFiles))))
 	mux.Handle("GET /api/v1/files/content", a.requireLogin(http.HandlerFunc(a.fileContent))) // no timeout
+	mux.Handle("GET /api/v1/media/info", withTimeout(a.requireLogin(http.HandlerFunc(a.mediaInfo))))
+	mux.Handle("POST /api/v1/media/audio", withTimeout(a.requireLogin(http.HandlerFunc(a.prepareAudio))))
+	mux.Handle("GET /api/v1/media/audio", a.requireLogin(http.HandlerFunc(a.audioTrack))) // no timeout
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "There's no API endpoint at "+r.URL.Path)
 	})

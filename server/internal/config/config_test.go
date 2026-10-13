@@ -124,11 +124,11 @@ func TestLoadRejectsBadTOML(t *testing.T) {
 }
 
 func TestValidateReportsEveryProblem(t *testing.T) {
-	err := Config{Listen: "8080", DataDir: "relative", StorageDir: "", LogLevel: "loud", SessionTTL: "forever"}.Validate()
+	err := Config{Listen: "8080", DataDir: "relative", StorageDir: "", LogLevel: "loud", SessionTTL: "forever", FFmpegDir: "bin"}.Validate()
 	if err == nil {
 		t.Fatal("Validate = nil, want errors")
 	}
-	for _, want := range []string{"listen", "data_dir", "storage_dir", "log_level", "session_ttl"} {
+	for _, want := range []string{"listen", "data_dir", "storage_dir", "log_level", "session_ttl", "ffmpeg_dir"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error doesn't mention %s: %v", want, err)
 		}

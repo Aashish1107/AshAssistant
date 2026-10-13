@@ -6,12 +6,13 @@
   <meta name="color-scheme" content="light dark">
   <title>Ash Cloud</title>
   <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/player.js" defer></script>
   <script src="/assets/app.js" defer></script>
 </head>
 <body>
   <main>
     <h1>Ash Cloud</h1>
-    <p class="note">Test page (Phase 1, step 4). The real app arrives in step 6.</p>
+    <p class="note">Test page (Phase 1). The real app arrives in step 6.</p>
 
     <p id="status" role="status">Checking…</p>
 
@@ -29,6 +30,31 @@
       <nav id="crumbs" aria-label="Folder"></nav>
       <ul id="entries"></ul>
       <p id="empty" class="note" hidden></p>
+    </section>
+
+    <section id="player" hidden aria-label="Video player">
+      <div id="stage">
+        <video id="video" playsinline preload="metadata"></video>
+        <p id="buffering" hidden>Loading…</p>
+        <div id="controls">
+          <div class="seek-row">
+            <input id="seek" type="range" min="0" max="0" step="0.1" value="0" aria-label="Position in the video">
+            <span id="clock">0:00 / 0:00</span>
+          </div>
+          <div class="control-row">
+            <button id="back10" type="button" aria-label="Back 10 seconds">−10</button>
+            <button id="playpause" type="button" aria-label="Play">▶</button>
+            <button id="fwd10" type="button" aria-label="Forward 10 seconds">+10</button>
+            <span class="spacer"></span>
+            <button id="audio-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="audio-menu">Audio</button>
+            <button id="fullscreen" type="button" aria-label="Full screen">⤢</button>
+          </div>
+          <div id="audio-menu" role="menu" aria-label="Audio track" hidden></div>
+        </div>
+      </div>
+      <p id="player-title"></p>
+      <p id="audio-status" class="note" role="status"></p>
+      <p class="player-links"><a id="player-back" href="#/">← Back to the folder</a> <a id="player-download" href="#">Download</a></p>
     </section>
 
     <section id="account" hidden>

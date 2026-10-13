@@ -11,6 +11,7 @@ import (
 
 	"github.com/Aashish1107/AshAssistant/server/internal/auth"
 	"github.com/Aashish1107/AshAssistant/server/internal/files"
+	"github.com/Aashish1107/AshAssistant/server/internal/media"
 )
 
 // sessionCookie holds the session token. It is:
@@ -24,6 +25,7 @@ type api struct {
 	logger *slog.Logger
 	auth   *auth.Service
 	files  *files.Store
+	media  *media.Library
 }
 
 type sessionKey struct{}

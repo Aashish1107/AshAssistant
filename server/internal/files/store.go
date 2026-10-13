@@ -163,6 +163,36 @@ func (s *Store) Open(userID, path string) (*File, error) {
 	}, nil
 }
 
+// LocalFile is where a file is on disk, for programs such as ffmpeg that
+// need a real path rather than an open file.
+type LocalFile struct {
+	Path        string // canonical path, e.g. "/Videos/movie.mp4"
+	Local       string // absolute path on disk
+	Size        int64
+	Modified    time.Time
+	ContentType string
+}
+
+// Local finds the file at path on disk. It's opened through os.Root first,
+// so the path is known to stay inside the user's folder, shortcuts included.
+func (s *Store) Local(userID, path string) (LocalFile, error) {
+	file, err := s.Open(userID, path)
+	if err != nil {
+		return LocalFile{}, err
+	}
+	file.Close()
+	_, relative, _ := Clean(path)
+	dir, err := storage.UserDir(s.storageDir, userID)
+	if err != nil {
+		return LocalFile{}, err
+	}
+	local, err := filepath.Abs(filepath.Join(dir, filepath.FromSlash(relative)))
+	if err != nil {
+		return LocalFile{}, err
+	}
+	return LocalFile{Path: file.Path, Local: local, Size: file.Size, Modified: file.Modified, ContentType: file.ContentType}, nil
+}
+
 // openRoot opens the user's folder, creating it if it doesn't exist yet.
 func (s *Store) openRoot(userID string) (*os.Root, error) {
 	dir, err := storage.CreateUserDir(s.storageDir, userID)

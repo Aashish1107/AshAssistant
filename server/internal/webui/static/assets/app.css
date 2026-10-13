@@ -126,3 +126,137 @@ button:disabled { opacity: 0.6; cursor: wait; }
 }
 
 a { color: var(--accent); }
+
+/* ---- video player ---- */
+
+#player { margin-bottom: 16px; }
+
+#stage {
+  position: relative;
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#stage video {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  background: #000;
+}
+
+#buffering {
+  position: absolute;
+  top: 40%;
+  left: 0;
+  right: 0;
+  margin: 0;
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 1px 3px #000;
+  pointer-events: none;
+}
+
+#controls {
+  position: relative;
+  padding: 4px 8px 8px;
+  background: #111;
+  color: #fff;
+}
+
+.seek-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#seek {
+  flex: 1;
+  min-width: 0;
+  margin: 8px 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.control-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.control-row button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 8px;
+  background: transparent;
+  color: #fff;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+
+.control-row button:active { background: rgba(255, 255, 255, 0.15); }
+
+#back10, #fwd10 { font-variant-numeric: tabular-nums; }
+
+#clock {
+  flex: none;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: #d8d8e0;
+}
+
+.control-row .spacer { flex: 1; }
+
+#audio-button {
+  max-width: 9.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+#audio-menu {
+  position: absolute;
+  right: 8px;
+  bottom: 100%;
+  min-width: 230px;
+  max-width: calc(100% - 16px);
+  max-height: 60vh;
+  overflow-y: auto;
+  background: #1f1f26;
+  border: 1px solid #3a3a44;
+  border-radius: 10px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 2;
+}
+
+.menu-item {
+  display: grid;
+  grid-template-columns: 1.5em 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px;
+  background: transparent;
+  color: #fff;
+  text-align: left;
+  font-weight: 500;
+}
+
+.menu-item:hover:not(:disabled), .menu-item:focus-visible { background: rgba(255, 255, 255, 0.1); }
+.menu-item:disabled { opacity: 0.6; cursor: default; }
+.menu-item .track-detail { color: #a8a8b5; font-size: 0.8rem; }
+.menu-note { margin: 8px; color: #c8c8d2; font-size: 0.85rem; }
+
+#player-title { font-weight: 600; margin: 12px 0 0; overflow-wrap: anywhere; }
+.player-links { display: flex; justify-content: space-between; gap: 16px; }
+
+/* Full screen: the video fills the screen, controls sit on top at the bottom. */
+#stage:fullscreen { border-radius: 0; justify-content: center; }
+#stage:fullscreen video { max-height: none; flex: 1; min-height: 0; object-fit: contain; }
+#stage:fullscreen #controls { background: rgba(0, 0, 0, 0.6); }

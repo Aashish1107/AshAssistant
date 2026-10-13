@@ -38,6 +38,17 @@ versions (`[3]`, or `[2 3]` if you skipped step 3). Those are added
 automatically. Your account, password, settings and sessions are kept, and
 your admin account's ID stays `1`.
 
+### 2b. Install ffmpeg (once, for switching audio tracks)
+
+```powershell
+winget install Gyan.FFmpeg
+```
+
+Then **open a new PowerShell window** (so it can find ffmpeg) and start the
+server from there. The server window should say
+`ffmpeg found - audio track switching is on`. Without ffmpeg everything else
+still works; the player's Audio menu just explains that switching is off.
+
 ### 3. Put some files in your folder
 
 Your files live in **`C:\AshCloud\storage\users\1\`**. Copy anything into it
@@ -54,8 +65,9 @@ With **Wi-Fi off** and the **Tailscale app on**, open
    it, and use the path at the top (Home / …) or the phone's Back button to go up.
 2. Tap a **photo** or **PDF** to view it, and a **text file** to read it.
    Tap **⬇** next to any file to download it.
-3. Tap your **video**. It opens in the phone's player. Press play, then
-   **drag the slider** to near the end, then back to the middle.
+3. Tap your **video**. It opens in Ash Cloud's player (see
+   [The video player](#the-video-player)). Press ▶, then **drag the slider**
+   to near the end, then back to the middle.
 
 **Step 4 is done** when the video starts within a few seconds and resumes
 within about 1–2 seconds after each drag. In the server window on the laptop
@@ -80,6 +92,47 @@ The laptop sends the video *up* that connection. 1080p phone video (about
 10–20 Mbps) needs roughly 25 Mbps of upload to play without pausing; 4K
 (about 40–60 Mbps) needs roughly 70 Mbps. Slower connections still play and
 scrub, but pause to buffer.
+
+---
+
+## The video player
+
+Tapping a video opens it in Ash Cloud's own player:
+
+```
+[━━━━━━●━━━━━━━━━━━━━━━━]  12:04 / 1:58:30
+ −10   ▶   +10            Audio: Hindi   ⤢
+```
+
+| Control | What it does |
+|---|---|
+| **−10** | Back 10 seconds |
+| **▶ / ❚❚** | Play / pause. Tapping the picture does the same. |
+| **+10** | Forward 10 seconds |
+| **Slider** | Jump anywhere in the video |
+| **Audio: …** | Choose the audio track, e.g. English or Hindi, for videos that have more than one |
+| **⤢** | Full screen. The phone turns sideways and the controls stay visible. |
+
+On a laptop keyboard, **←** and **→** skip 10 seconds and **Space** plays or
+pauses.
+
+**How switching the audio works.** Chrome on Android can only play a video's
+*first* audio track. When you pick another one, the server pulls just that
+track out of the video with ffmpeg. The player then mutes the video and plays
+that track alongside it, keeping the two in sync when you pause, skip or
+drag. Your current audio keeps playing while the new track is prepared.
+
+- **The first time** you pick a track, it says *Preparing Hindi audio… 40%*.
+  A movie's track takes from a few seconds to about a minute, depending on its
+  length and format. After that the track is saved, so it's instant.
+- **Formats.** AAC, Opus, MP3 and FLAC tracks are copied as they are. Formats
+  phones can't play, such as AC3, E-AC3 and DTS (common in movies), are
+  converted to stereo AAC.
+- **Saved tracks** live in `C:\AshCloud\cache\audio\`. Tracks nobody has
+  played for 30 days are deleted when the server starts. Deleting the folder
+  yourself is always safe; tracks are simply prepared again when needed.
+- **Labels.** Track names come from the video, e.g. "Hindi 5.1", or from its
+  language code, e.g. `hin` becomes "Hindi".
 
 ---
 
@@ -148,6 +201,9 @@ ashcloud help                           show help
 | `GET /api/v1/me` | **yes** | `200` `{"user": {...}, "expires_at": ...}`, or `401`. |
 | `GET /api/v1/files?path=/Photos` | **yes** | `200` `{"path": "/Photos", "entries": [{"name", "path", "type": "folder"\|"file", "size", "modified", "content_type"}]}`. Folders first, then files, sorted by name. |
 | `GET /api/v1/files/content?path=/Videos/trip.mov` | **yes** | The file, as a download. Add `&inline=1` to open it in the browser instead: images, video, audio and PDFs display, text files show as plain text, and anything else still downloads. Supports `Range` (`206`), `ETag`/`If-None-Match` (`304`), `If-Range` and `HEAD`. No time limit. |
+| `GET /api/v1/media/info?path=/Videos/movie.mp4` | **yes** | `200` `{"duration_seconds", "audio_tracks": [{"track", "codec", "channels", "language", "title", "default", "native"}], "can_switch_audio", "reason"}`. `native` is the track the browser plays by itself (the first). `422` if the file isn't a video. |
+| `POST /api/v1/media/audio` | **yes** | `{"path", "track"}` → `{"state": "preparing", "progress": 0.4}`, then `{"state": "ready", "url": ...}` (or `"failed"`, with `error`). Starts extracting the track the first time; call again to follow progress. `409` without ffmpeg. |
+| `GET /api/v1/media/audio?path=…&track=1` | **yes** | The prepared track, with `Range` support like files. `404 not_ready` until prepared. No time limit. |
 
 Errors always look like
 `{"error": {"code": "invalid_credentials", "message": "Wrong username or password"}}`.
@@ -164,6 +220,7 @@ data_dir = 'C:\AshCloud'        # database and other server files
 storage_dir = 'C:\AshCloud\storage'   # your files, one subfolder per user
 log_level = 'info'              # debug, info, warn or error
 session_ttl = '720h'            # how long an unused device stays logged in (720h = 30 days, at least 1h)
+ffmpeg_dir = ''                 # folder with ffmpeg.exe and ffprobe.exe; empty = find them on the PATH
 ```
 
 Restart the server after editing. A setting that's missing uses the default
@@ -179,6 +236,10 @@ shown. A misspelled one stops the server with a message naming it.
 | "Too many wrong passwords from this device" | Only happens for non-admin accounts. Wait the number of minutes shown. |
 | "Requests from other websites aren't allowed" when logging in | Your browser is too old to send the `Sec-Fetch-Site` header (it's in Safari 16.4+, Chrome 76+). Update the phone's browser. |
 | Logged out unexpectedly | Something ended the session. Either the password was reset, the device wasn't used for 30 days, or the browser's cookies were cleared. Log in again. |
+| Audio menu says "ffmpeg isn't installed" | Run `winget install Gyan.FFmpeg`, then start the server from a **new** PowerShell window. Or set `ffmpeg_dir` in the settings to the folder holding `ffmpeg.exe`. |
+| Audio menu says "only one audio track" | That video really has just one. |
+| Switching audio says "Couldn't prepare that audio track" | The server window shows ffmpeg's reason under `audio track extraction failed`. |
+| Audio and picture drift apart | They're re-aligned automatically within about a second. If not, pause and play again. |
 | A video won't play, or downloads instead | The browser can't play that format (see the table above). `.MKV` and `.AVI` never play in a browser. |
 | A video keeps pausing to buffer | Your home internet's upload speed is lower than the video's bitrate. On the laptop, run `tailscale ping <phone-name>`. If it says `via DERP`, the connection is relayed: enable UPnP on your router. |
 | A file on the laptop doesn't show up | Windows' own `desktop.ini` and `Thumbs.db` are hidden on purpose. So are names Windows itself can't use, and shortcuts that point outside your folder. |
@@ -197,7 +258,7 @@ shown. A misspelled one stops the server with a message naming it.
 
 Only needed on a laptop that has never run Ash Cloud.
 
-1. **Tools:** `winget install GoLang.Go Git.Git tailscale.tailscale`, then
+1. **Tools:** `winget install GoLang.Go Git.Git tailscale.tailscale Gyan.FFmpeg`, then
    open a new PowerShell window. You need Go 1.26 or newer (`go version`).
    If it's older, building downloads the right version by itself.
 2. **Code:**
@@ -242,6 +303,9 @@ go vet ./...
 go test ./...
 ```
 
+The media tests use the real ffmpeg when it's installed, and are skipped
+otherwise.
+
 The database code in `internal/db` (`db.go`, `models.go`, `*.sql.go`) is
 generated by [sqlc](https://sqlc.dev) from `internal/db/queries/*.sql` and
 `internal/db/migrations/*.sql`. After changing either:
@@ -263,7 +327,9 @@ internal/db/          SQLite: opening, migrations/, queries/, sqlc output
 internal/auth/        passwords (argon2id), users, login, sessions, lockout, audit log
 internal/ids/         Nano IDs for new users
 internal/files/       browsing and reading files: path rules, content types, os.Root
+internal/media/       ffprobe/ffmpeg: list a video's audio tracks, extract one, cache and clean up
 internal/storage/     files folder: per-user folders, writability check
 internal/httpapi/     routes, middleware chain, JSON errors, server start/stop
-internal/webui/       the browser page, built into the binary (test page until step 6)
+internal/webui/       the browser page, built into the binary (test page until step 6),
+                      including the video player (static/assets/player.js)
 ```
