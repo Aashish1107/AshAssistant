@@ -20,29 +20,28 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 	return count, err
 }
 
-const createUser = `-- name: CreateUser :one
-INSERT INTO users (username, password_hash, role, created_at)
-VALUES (?, ?, ?, ?)
-RETURNING id
+const createUser = `-- name: CreateUser :exec
+INSERT INTO users (id, username, password_hash, role, created_at)
+VALUES (?, ?, ?, ?, ?)
 `
 
 type CreateUserParams struct {
+	ID           string
 	Username     string
 	PasswordHash string
 	Role         string
 	CreatedAt    int64
 }
 
-func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, createUser,
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
+	_, err := q.db.ExecContext(ctx, createUser,
+		arg.ID,
 		arg.Username,
 		arg.PasswordHash,
 		arg.Role,
 		arg.CreatedAt,
 	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
+	return err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
@@ -50,7 +49,7 @@ SELECT id, username, password_hash, role FROM users WHERE username = ?
 `
 
 type GetUserByUsernameRow struct {
-	ID           int64
+	ID           string
 	Username     string
 	PasswordHash string
 	Role         string
@@ -74,7 +73,7 @@ UPDATE users SET password_hash = ? WHERE id = ?
 
 type SetPasswordHashParams struct {
 	PasswordHash string
-	ID           int64
+	ID           string
 }
 
 func (q *Queries) SetPasswordHash(ctx context.Context, arg SetPasswordHashParams) error {

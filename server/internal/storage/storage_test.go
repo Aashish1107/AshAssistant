@@ -8,19 +8,29 @@ import (
 
 func TestCreateUserDir(t *testing.T) {
 	root := t.TempDir()
-	dir, err := CreateUserDir(root, 7)
-	if err != nil {
-		t.Fatal(err)
+	for _, id := range []string{"1", "V1StGXR8_Z5jdHi6B-myT"} {
+		dir, err := CreateUserDir(root, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := filepath.Join(root, "users", id); dir != want {
+			t.Errorf("dir = %q, want %q", dir, want)
+		}
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			t.Fatalf("user folder not created: %v", err)
+		}
+		// Creating it again is fine.
+		if _, err := CreateUserDir(root, id); err != nil {
+			t.Fatalf("second CreateUserDir = %v", err)
+		}
 	}
-	if want := filepath.Join(root, "users", "7"); dir != want {
-		t.Errorf("dir = %q, want %q", dir, want)
-	}
-	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-		t.Fatalf("user folder not created: %v", err)
-	}
-	// Creating it again is fine.
-	if _, err := CreateUserDir(root, 7); err != nil {
-		t.Fatalf("second CreateUserDir = %v", err)
+}
+
+func TestUserDirRejectsUnsafeIDs(t *testing.T) {
+	for _, id := range []string{"", "..", "../2", "a/b", `a\b`, "a b", "1:stream"} {
+		if dir, err := UserDir("/data", id); err == nil {
+			t.Errorf("UserDir(%q) = %q, want an error", id, dir)
+		}
 	}
 }
 

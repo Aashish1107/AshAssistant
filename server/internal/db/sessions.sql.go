@@ -16,7 +16,7 @@ RETURNING id
 `
 
 type CreateSessionParams struct {
-	UserID     int64
+	UserID     string
 	TokenHash  []byte
 	UserAgent  string
 	Ip         string
@@ -62,7 +62,7 @@ const deleteUserSessions = `-- name: DeleteUserSessions :execrows
 DELETE FROM sessions WHERE user_id = ?
 `
 
-func (q *Queries) DeleteUserSessions(ctx context.Context, userID int64) (int64, error) {
+func (q *Queries) DeleteUserSessions(ctx context.Context, userID string) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteUserSessions, userID)
 	if err != nil {
 		return 0, err
@@ -85,7 +85,7 @@ type GetSessionParams struct {
 
 type GetSessionRow struct {
 	ID         int64
-	UserID     int64
+	UserID     string
 	LastSeenAt int64
 	ExpiresAt  int64
 	Username   string

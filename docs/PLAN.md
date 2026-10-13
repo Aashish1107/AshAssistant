@@ -138,7 +138,7 @@ C:\AshCloud\
 ├── logs\                    # rotated JSON logs
 ├── backups\                 # nightly database snapshots
 ├── cache\thumbs\            # generated thumbnails (Phase 3)
-└── storage\users\1\         # MY FILES (per-user folder from day one)
+└── storage\users\1\         # MY FILES (per-user folder from day one; others: users\<nano id>\)
 ```
 
 `ashcloud.toml`:
@@ -157,20 +157,21 @@ log_level    = "info"
 
 Phase 1:
 ```sql
-users     (id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL,   -- step 2 ✅
-           password_hash TEXT NOT NULL,                           -- argon2id
+users     (id TEXT NOT NULL PRIMARY KEY,         -- "1" for the first admin, otherwise a 21-char Nano ID
+           username TEXT UNIQUE NOT NULL,
+           password_hash TEXT NOT NULL,           -- argon2id
            role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
            created_at INTEGER NOT NULL) STRICT
 
 sessions  (id INTEGER PRIMARY KEY,                                  -- step 3 ✅
-           user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+           user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
            token_hash BLOB UNIQUE NOT NULL,      -- SHA-256 of the cookie, never the token itself
            user_agent TEXT NOT NULL, ip TEXT NOT NULL,
            created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,
            expires_at INTEGER NOT NULL) STRICT
 
 audit_log (id INTEGER PRIMARY KEY,                                  -- step 3 ✅
-           user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+           user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
            action TEXT NOT NULL,                 -- login, login_failed, login_blocked, logout, password_reset, …
            detail TEXT NOT NULL DEFAULT '',      -- e.g. the username a failed login tried, or a file path
            ip TEXT NOT NULL, at INTEGER NOT NULL) STRICT
@@ -178,6 +179,11 @@ audit_log (id INTEGER PRIMARY KEY,                                  -- step 3 �
 
 Later phases add: `uploads` (resumable upload state, P2), `trash` (P2),
 `file_index` + FTS5 search table and `thumbnails` (P3), `passkeys` (P5).
+
+**User IDs.** The first admin created on an empty server is `"1"`; every
+other user gets a random 21-character Nano ID (same alphabet and length as
+the npm `nanoid` package), so IDs can't be guessed or used to count accounts.
+Each user's files live in `storage\users\<id>\`.
 
 **The disk is the source of truth for files.** The database stores users,
 sessions, history and indexes, never the files themselves. Files dropped into

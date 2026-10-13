@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,6 +18,7 @@ import (
 const (
 	adminPassword = "admin password 123"
 	userPassword  = "user password 456"
+	guestID       = "V1StGXR8_Z5jdHi6B-myT"
 )
 
 var (
@@ -48,11 +51,11 @@ func newTestService(t *testing.T, opts Options) (*Service, *fakeClock, *sql.DB) 
 		t.Fatal(err)
 	}
 	queries := db.New(database)
-	for _, u := range []struct{ name, password, role string }{
-		{"aashish", adminPassword, RoleAdmin},
-		{"guest", userPassword, RoleUser},
+	for _, u := range []struct{ id, name, password, role string }{
+		{FirstAdminID, "aashish", adminPassword, RoleAdmin},
+		{guestID, "guest", userPassword, RoleUser},
 	} {
-		if _, err := queries.CreateUser(ctx, db.CreateUserParams{Username: u.name, PasswordHash: cheapHash(u.password), Role: u.role, CreatedAt: 1}); err != nil {
+		if err := queries.CreateUser(ctx, db.CreateUserParams{ID: u.id, Username: u.name, PasswordHash: cheapHash(u.password), Role: u.role, CreatedAt: 1}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -92,7 +95,7 @@ func TestLoginSucceeds(t *testing.T) {
 	if result.Token == "" || len(result.Token) < 40 {
 		t.Errorf("token = %q, want a long random token", result.Token)
 	}
-	want := User{ID: 1, Username: "aashish", Role: RoleAdmin}
+	want := User{ID: "1", Username: "aashish", Role: RoleAdmin}
 	if result.Session.User != want {
 		t.Errorf("user = %+v, want %+v", result.Session.User, want)
 	}
@@ -138,7 +141,7 @@ func TestLoginWrongPasswordAndUnknownUserLookTheSame(t *testing.T) {
 	}
 
 	var withUser, withoutUser int
-	database.QueryRow("SELECT count(*) FROM audit_log WHERE action = 'login_failed' AND user_id = 1").Scan(&withUser)
+	database.QueryRow("SELECT count(*) FROM audit_log WHERE action = 'login_failed' AND user_id = '1'").Scan(&withUser)
 	database.QueryRow("SELECT count(*) FROM audit_log WHERE action = 'login_failed' AND user_id IS NULL AND detail = 'nobody'").Scan(&withoutUser)
 	if withUser != 1 || withoutUser != 1 {
 		t.Errorf("failed logins audited: %d for aashish, %d for nobody; want 1 each", withUser, withoutUser)
@@ -220,7 +223,7 @@ func TestAdminIsNeverLockedOut(t *testing.T) {
 	}
 
 	var failed int
-	database.QueryRow("SELECT count(*) FROM audit_log WHERE action = 'login_failed' AND user_id = 1").Scan(&failed)
+	database.QueryRow("SELECT count(*) FROM audit_log WHERE action = 'login_failed' AND user_id = '1'").Scan(&failed)
 	if failed != 20 {
 		t.Errorf("%d failed admin logins audited, want 20", failed)
 	}
@@ -452,4 +455,104 @@ func contains(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// ---- creating users ----------------------------------------------------------
+
+// newEmptyService returns a Service on a database with no users.
+func newEmptyService(t *testing.T) (*Service, *sql.DB) {
+	t.Helper()
+	ctx := context.Background()
+	database, err := db.Open(ctx, filepath.Join(t.TempDir(), "empty.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	if _, err := db.Migrate(ctx, database); err != nil {
+		t.Fatal(err)
+	}
+	return NewService(database, Options{}), database
+}
+
+var nanoID = regexp.MustCompile(`^[A-Za-z0-9_-]{21}$`)
+
+func TestFirstAdminIsOneEveryoneElseGetsANanoID(t *testing.T) {
+	service, database := newEmptyService(t)
+	ctx := context.Background()
+	cli := Client{IP: "command line"}
+
+	admin, err := service.CreateUser(ctx, "Aashish", "admin password 123", RoleAdmin, cli)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if admin != (User{ID: "1", Username: "aashish", Role: RoleAdmin}) {
+		t.Errorf("first admin = %+v, want id 1", admin)
+	}
+
+	seen := map[string]bool{}
+	for _, u := range []struct{ name, role string }{{"second-admin", RoleAdmin}, {"guest", RoleUser}, {"family", RoleUser}} {
+		user, err := service.CreateUser(ctx, u.name, "some password 456", u.role, cli)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !nanoID.MatchString(user.ID) || seen[user.ID] {
+			t.Errorf("%s got id %q, want a new 21-character Nano ID", u.name, user.ID)
+		}
+		seen[user.ID] = true
+	}
+
+	var created int
+	database.QueryRow("SELECT count(*) FROM audit_log WHERE action = 'user_created'").Scan(&created)
+	if created != 4 {
+		t.Errorf("%d user_created audit entries, want 4", created)
+	}
+	if _, err := service.Login(ctx, "aashish", "admin password 123", phone); err != nil {
+		t.Errorf("can't log in as the new admin: %v", err)
+	}
+}
+
+func TestFirstUserThatIsntAnAdminGetsANanoID(t *testing.T) {
+	service, _ := newEmptyService(t)
+	user, err := service.CreateUser(context.Background(), "guest", "some password 456", RoleUser, Client{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !nanoID.MatchString(user.ID) {
+		t.Errorf("id = %q, want a Nano ID", user.ID)
+	}
+}
+
+func TestCreateUserRejections(t *testing.T) {
+	service, _ := newEmptyService(t)
+	ctx := context.Background()
+	if _, err := service.CreateUser(ctx, "aashish", "admin password 123", RoleAdmin, Client{}); err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		username, password, role string
+		wantErr                  string
+	}{
+		"taken (any case)": {"AASHISH", "long enough password", RoleUser, "taken"},
+		"bad username":     {"bob smith", "long enough password", RoleUser, "use 1-32 letters"},
+		"short password":   {"bob", "short", RoleUser, "at least 12"},
+		"unknown role":     {"bob", "long enough password", "owner", "must be"},
+	} {
+		_, err := service.CreateUser(ctx, tc.username, tc.password, tc.role, Client{})
+		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("%s: got %v, want an error containing %q", name, err, tc.wantErr)
+		}
+	}
+}
+
+func TestNormalizeUsername(t *testing.T) {
+	for in, want := range map[string]string{" Aashish ": "aashish", "a.b-c_d": "a.b-c_d", "x": "x"} {
+		if got, err := NormalizeUsername(in); err != nil || got != want {
+			t.Errorf("NormalizeUsername(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"", "-lead", "has space", "ünïcode", strings.Repeat("a", 33), "../up"} {
+		if got, err := NormalizeUsername(bad); err == nil {
+			t.Errorf("NormalizeUsername(%q) = %q, want an error", bad, got)
+		}
+	}
 }

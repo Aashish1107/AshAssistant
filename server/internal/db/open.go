@@ -48,12 +48,7 @@ func Open(ctx context.Context, path string) (*sql.DB, error) {
 // Migrate applies the schema changes the database doesn't have yet and
 // returns the versions it applied (empty when already up to date).
 func Migrate(ctx context.Context, database *sql.DB) ([]int64, error) {
-	files, err := fs.Sub(migrationFiles, "migrations")
-	if err != nil {
-		return nil, err
-	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, database, files,
-		goose.WithDisableGlobalRegistry(true))
+	provider, err := newMigrator(database)
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +63,14 @@ func Migrate(ctx context.Context, database *sql.DB) ([]int64, error) {
 		return applied, fmt.Errorf("update database schema: %w", err)
 	}
 	return applied, nil
+}
+
+func newMigrator(database *sql.DB) (*goose.Provider, error) {
+	files, err := fs.Sub(migrationFiles, "migrations")
+	if err != nil {
+		return nil, err
+	}
+	return goose.NewProvider(goose.DialectSQLite3, database, files, goose.WithDisableGlobalRegistry(true))
 }
 
 // Check proves the database file can be read. Used by /readyz.

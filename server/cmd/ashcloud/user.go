@@ -3,14 +3,11 @@ package main
 import (
 	"bufio"
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strings"
-	"time"
 
 	"golang.org/x/term"
 
@@ -22,8 +19,6 @@ import (
 
 const userUsage = `usage: ashcloud user create [--admin] [--config FILE] NAME
        ashcloud user reset-password [--config FILE] NAME`
-
-var usernamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,31}$`)
 
 func runUser(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
@@ -50,9 +45,9 @@ func runUserCreate(ctx context.Context, args []string, stdin io.Reader, stdout, 
 	if len(positional) != 1 {
 		return errors.New(userUsage)
 	}
-	username := strings.ToLower(positional[0])
-	if !usernamePattern.MatchString(username) {
-		return fmt.Errorf("username %q: use 1-32 letters, digits, dots, dashes or underscores, starting with a letter or digit", positional[0])
+	username, err := auth.NormalizeUsername(positional[0])
+	if err != nil {
+		return err
 	}
 
 	cfg, err := loadConfig(*configPath)
@@ -78,15 +73,22 @@ func runUserCreate(ctx context.Context, args []string, stdin io.Reader, stdout, 
 	if err != nil {
 		return err
 	}
-	role := "user"
+	role := auth.RoleUser
 	if *admin {
-		role = "admin"
+		role = auth.RoleAdmin
 	}
-	id, dir, err := createUser(ctx, database, cfg.StorageDir, username, auth.HashPassword(password), role)
+	user, err := auth.NewService(database, auth.Options{}).CreateUser(ctx, username, password, role, auth.Client{IP: "command line"})
+	if errors.Is(err, auth.ErrUsernameTaken) {
+		return fmt.Errorf("a user named %q already exists", username)
+	}
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "Created %s %q (id %d).\nFiles folder: %s\n", role, username, id, dir)
+	dir, err := storage.CreateUserDir(cfg.StorageDir, user.ID)
+	if err != nil {
+		return fmt.Errorf("create files folder: %w", err)
+	}
+	fmt.Fprintf(stdout, "Created %s %q (id %s).\nFiles folder: %s\n", user.Role, user.Username, user.ID, dir)
 	return nil
 }
 
@@ -133,34 +135,6 @@ func runUserResetPassword(ctx context.Context, args []string, stdin io.Reader, s
 	}
 	fmt.Fprintf(stdout, "Password changed for %q. Logged out of %d device(s); log in again with the new password.\n", username, ended)
 	return nil
-}
-
-// createUser adds the user and their files folder together: if the folder
-// can't be created, the user isn't either.
-func createUser(ctx context.Context, database *sql.DB, storageDir, username, passwordHash, role string) (int64, string, error) {
-	tx, err := database.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, "", err
-	}
-	defer tx.Rollback()
-
-	id, err := db.New(tx).CreateUser(ctx, db.CreateUserParams{
-		Username:     username,
-		PasswordHash: passwordHash,
-		Role:         role,
-		CreatedAt:    time.Now().Unix(),
-	})
-	if db.IsUniqueViolation(err) {
-		return 0, "", fmt.Errorf("a user named %q already exists", username)
-	}
-	if err != nil {
-		return 0, "", err
-	}
-	dir, err := storage.CreateUserDir(storageDir, id)
-	if err != nil {
-		return 0, "", fmt.Errorf("create files folder: %w", err)
-	}
-	return id, dir, tx.Commit()
 }
 
 // readNewPassword asks for a password twice and checks it follows the rules.

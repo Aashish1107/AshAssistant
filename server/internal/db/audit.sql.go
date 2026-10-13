@@ -16,7 +16,7 @@ VALUES (?, ?, ?, ?, ?)
 `
 
 type AddAuditEntryParams struct {
-	UserID sql.NullInt64
+	UserID sql.NullString
 	Action string
 	Detail string
 	Ip     string

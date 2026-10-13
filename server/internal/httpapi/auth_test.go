@@ -139,7 +139,7 @@ func TestMe(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d\n%s", rec.Code, rec.Body)
 	}
-	if got := decodeBody[sessionJSON](t, rec.Body.Bytes()).User; got.Username != "aashish" || got.ID != 1 {
+	if got := decodeBody[sessionJSON](t, rec.Body.Bytes()).User; got.Username != "aashish" || got.ID != "1" {
 		t.Errorf("user = %+v", got)
 	}
 	if !strings.Contains(logs.String(), "path=/api/v1/me status=200") || !strings.Contains(logs.String(), "user_id=1") {

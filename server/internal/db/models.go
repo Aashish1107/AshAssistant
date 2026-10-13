@@ -10,7 +10,7 @@ import (
 
 type AuditLog struct {
 	ID     int64
-	UserID sql.NullInt64
+	UserID sql.NullString
 	Action string
 	Detail string
 	Ip     string
@@ -19,7 +19,7 @@ type AuditLog struct {
 
 type Session struct {
 	ID         int64
-	UserID     int64
+	UserID     string
 	TokenHash  []byte
 	UserAgent  string
 	Ip         string
@@ -29,7 +29,7 @@ type Session struct {
 }
 
 type User struct {
-	ID           int64
+	ID           string
 	Username     string
 	PasswordHash string
 	Role         string

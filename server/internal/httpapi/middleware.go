@@ -18,7 +18,7 @@ import (
 // request ID it had and who made it.
 type requestInfo struct {
 	id     string
-	userID int64 // set once a login or session check identifies the user
+	userID string // set once a login or session check identifies the user
 }
 
 type requestInfoKey struct{}
@@ -112,7 +112,7 @@ func logRequests(logger *slog.Logger, next http.Handler) http.Handler {
 			"client", clientIP(r),
 			"request_id", info.id,
 		}
-		if info.userID != 0 {
+		if info.userID != "" {
 			attrs = append(attrs, "user_id", info.userID)
 		}
 		logger.Info("request", attrs...)

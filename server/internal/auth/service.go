@@ -11,12 +11,14 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
 	"github.com/Aashish1107/AshAssistant/server/internal/db"
+	"github.com/Aashish1107/AshAssistant/server/internal/ids"
 )
 
 // Roles a user can have.
@@ -24,6 +26,13 @@ const (
 	RoleAdmin = "admin"
 	RoleUser  = "user"
 )
+
+// FirstAdminID is the ID of the first admin created on an empty server.
+// Every other user gets a random Nano ID, so user IDs can't be guessed or
+// used to count accounts.
+const FirstAdminID = "1"
+
+var usernamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,31}$`)
 
 const (
 	// Using a session pushes its expiry forward, but at most once per
@@ -47,6 +56,8 @@ var (
 	ErrInvalidCredentials = errors.New("wrong username or password")
 	// ErrNoSession means the request has no valid, unexpired session.
 	ErrNoSession = errors.New("not logged in")
+	// ErrUsernameTaken means another user already has that name.
+	ErrUsernameTaken = errors.New("that username is taken")
 )
 
 // TooManyAttemptsError means this client must wait before trying again.
@@ -73,9 +84,9 @@ type Client struct {
 	UserAgent string
 }
 
-// User is the logged-in user.
+// User is a user account.
 type User struct {
-	ID       int64
+	ID       string // "1" for the first admin, otherwise a Nano ID
 	Username string
 	Role     string
 }
@@ -157,7 +168,7 @@ func (s *Service) Login(ctx context.Context, username, password string, client C
 	limited := !(found && user.Role == RoleAdmin)
 	if limited {
 		if wait := s.limiter.retryAfter(client.IP, now); wait > 0 {
-			s.audit(ctx, sql.NullInt64{}, "login_blocked", username, client, now)
+			s.audit(ctx, sql.NullString{}, "login_blocked", username, client, now)
 			return LoginResult{}, &TooManyAttemptsError{RetryAfter: wait}
 		}
 	}
@@ -177,9 +188,9 @@ func (s *Service) Login(ctx context.Context, username, password string, client C
 		if limited {
 			s.limiter.recordFailure(client.IP, now)
 		}
-		var userID sql.NullInt64
+		var userID sql.NullString
 		if found {
-			userID = sql.NullInt64{Int64: user.ID, Valid: true}
+			userID = sql.NullString{String: user.ID, Valid: true}
 		}
 		s.audit(ctx, userID, "login_failed", username, client, now)
 		s.logger.Warn("failed login", "username", truncate(username, maxDetailLength), "ip", client.IP, "lockout_applies", limited)
@@ -209,7 +220,7 @@ func (s *Service) Login(ctx context.Context, username, password string, client C
 		if err != nil {
 			return err
 		}
-		return q.AddAuditEntry(ctx, auditEntry(sql.NullInt64{Int64: user.ID, Valid: true}, "login", "", client, now))
+		return q.AddAuditEntry(ctx, auditEntry(validID(user.ID), "login", "", client, now))
 	})
 	if err != nil {
 		return LoginResult{}, err
@@ -270,8 +281,63 @@ func (s *Service) Logout(ctx context.Context, token string, client Client) error
 		if err := q.DeleteSession(ctx, row.ID); err != nil {
 			return err
 		}
-		return q.AddAuditEntry(ctx, auditEntry(sql.NullInt64{Int64: row.UserID, Valid: true}, "logout", "", client, now))
+		return q.AddAuditEntry(ctx, auditEntry(validID(row.UserID), "logout", "", client, now))
 	})
+}
+
+// NormalizeUsername lower-cases and trims a username and checks it's allowed:
+// 1-32 letters, digits, dots, dashes or underscores, starting with a letter
+// or digit.
+func NormalizeUsername(username string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(username))
+	if !usernamePattern.MatchString(normalized) {
+		return "", fmt.Errorf("username %q: use 1-32 letters, digits, dots, dashes or underscores, starting with a letter or digit", username)
+	}
+	return normalized, nil
+}
+
+// CreateUser adds a user. The first admin created on an empty server gets
+// the ID "1"; everyone else gets a random Nano ID.
+func (s *Service) CreateUser(ctx context.Context, username, password, role string, client Client) (User, error) {
+	username, err := NormalizeUsername(username)
+	if err != nil {
+		return User{}, err
+	}
+	if role != RoleAdmin && role != RoleUser {
+		return User{}, fmt.Errorf("role %q must be %q or %q", role, RoleAdmin, RoleUser)
+	}
+	if err := CheckPasswordRules(password); err != nil {
+		return User{}, err
+	}
+	hash := HashPassword(password) // slow, so done before taking the write lock
+
+	var user User
+	err = s.inTx(ctx, func(q *db.Queries) error {
+		existing, err := q.CountUsers(ctx)
+		if err != nil {
+			return err
+		}
+		id := ids.New()
+		if existing == 0 && role == RoleAdmin {
+			id = FirstAdminID
+		}
+		err = q.CreateUser(ctx, db.CreateUserParams{
+			ID:           id,
+			Username:     username,
+			PasswordHash: hash,
+			Role:         role,
+			CreatedAt:    s.now().Unix(),
+		})
+		if db.IsUniqueViolation(err) {
+			return ErrUsernameTaken
+		}
+		if err != nil {
+			return err
+		}
+		user = User{ID: id, Username: username, Role: role}
+		return q.AddAuditEntry(ctx, auditEntry(validID(id), "user_created", username, client, s.now()))
+	})
+	return user, err
 }
 
 // ResetPassword sets a new password for username and logs out every device
@@ -296,7 +362,7 @@ func (s *Service) ResetPassword(ctx context.Context, username, newPassword strin
 		if ended, err = q.DeleteUserSessions(ctx, user.ID); err != nil {
 			return err
 		}
-		return q.AddAuditEntry(ctx, auditEntry(sql.NullInt64{Int64: user.ID, Valid: true}, "password_reset", "", client, s.now()))
+		return q.AddAuditEntry(ctx, auditEntry(validID(user.ID), "password_reset", "", client, s.now()))
 	})
 	return ended, err
 }
@@ -337,13 +403,17 @@ func (s *Service) inTx(ctx context.Context, fn func(*db.Queries) error) error {
 
 // audit records an event outside a transaction. A failure to record it is
 // logged rather than failing the request.
-func (s *Service) audit(ctx context.Context, userID sql.NullInt64, action, detail string, client Client, now time.Time) {
+func (s *Service) audit(ctx context.Context, userID sql.NullString, action, detail string, client Client, now time.Time) {
 	if err := s.queries.AddAuditEntry(ctx, auditEntry(userID, action, detail, client, now)); err != nil {
 		s.logger.Error("couldn't write audit log", "action", action, "error", err)
 	}
 }
 
-func auditEntry(userID sql.NullInt64, action, detail string, client Client, now time.Time) db.AddAuditEntryParams {
+func validID(id string) sql.NullString {
+	return sql.NullString{String: id, Valid: true}
+}
+
+func auditEntry(userID sql.NullString, action, detail string, client Client, now time.Time) db.AddAuditEntryParams {
 	return db.AddAuditEntryParams{
 		UserID: userID,
 		Action: action,

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -196,6 +197,25 @@ func TestUserCreateWithoutAdminIsAUser(t *testing.T) {
 	stdout, _, err := ashcloud(t, testPassword+"\n"+testPassword+"\n", "user", "create", "--config", configPath, "guest")
 	if err != nil || !strings.Contains(stdout, `Created user "guest"`) {
 		t.Fatalf("got %v:\n%s", err, stdout)
+	}
+}
+
+func TestLaterUsersGetNanoIDsAndTheirOwnFolder(t *testing.T) {
+	configPath := initDataDir(t)
+	if _, _, err := ashcloud(t, testPassword+"\n"+testPassword+"\n", "user", "create", "--config", configPath, "--admin", "aashish"); err != nil {
+		t.Fatal(err)
+	}
+	stdout, _, err := ashcloud(t, testPassword+"\n"+testPassword+"\n", "user", "create", "--config", configPath, "guest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	match := regexp.MustCompile(`Created user "guest" \(id ([A-Za-z0-9_-]{21})\)`).FindStringSubmatch(stdout)
+	if match == nil {
+		t.Fatalf("output doesn't show a Nano ID:\n%s", stdout)
+	}
+	folder := filepath.Join(filepath.Dir(configPath), "storage", "users", match[1])
+	if info, err := os.Stat(folder); err != nil || !info.IsDir() {
+		t.Errorf("files folder %s not created: %v", folder, err)
 	}
 }
 

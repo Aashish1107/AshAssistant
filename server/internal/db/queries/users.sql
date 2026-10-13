@@ -1,7 +1,6 @@
--- name: CreateUser :one
-INSERT INTO users (username, password_hash, role, created_at)
-VALUES (?, ?, ?, ?)
-RETURNING id;
+-- name: CreateUser :exec
+INSERT INTO users (id, username, password_hash, role, created_at)
+VALUES (?, ?, ?, ?, ?);
 
 -- name: CountUsers :one
 SELECT count(*) FROM users;

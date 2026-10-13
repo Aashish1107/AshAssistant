@@ -71,6 +71,7 @@ browser, and logs out when you tap **Log out**.
 | **Wrong passwords: admin accounts** | **Never locked out.** That's your choice for admin accounts. Each failed attempt is still written to the server log (`failed login ... lockout_applies=false`) and the audit log. |
 | **Wrong passwords: other accounts** | 5 wrong passwords from one device within 15 minutes blocks that device for those accounts until the oldest attempt is 15 minutes old. Unknown usernames count too. |
 | **Speed limit on password checks** | Each check uses 64 MB of memory, so at most 4 run at once and extra attempts wait their turn. They're never refused. This protects the laptop's memory. It also caps password guessing at roughly 40 attempts a second. |
+| **User IDs** | Your admin account is `1`. Every account created after it gets a random 21-character Nano ID, like `V1StGXR8_Z5jdHi6B-myT`. Each account's files live in `C:\AshCloud\storage\users\<id>\`. |
 | **Forgot your password** | On the laptop: `.\ashcloud.exe user reset-password aashish`. It also logs you out on every device. |
 
 ### Security, in short
@@ -193,7 +194,9 @@ Files on the laptop:
 C:\AshCloud\
 ├── ashcloud.toml        settings
 ├── ashcloud.db          database: users, sessions, audit log (+ -wal / -shm files while running)
-└── storage\users\1\     your files
+└── storage\users\
+    ├── 1\               your files (admin)
+    └── <nano id>\       each other account's files
 ```
 
 ---

@@ -19,6 +19,7 @@ import (
 const (
 	adminPassword = "admin password 123"
 	guestPassword = "guest password 456"
+	guestID       = "V1StGXR8_Z5jdHi6B-myT"
 )
 
 // Real argon2id hashes are slow to make, so make each one once per test run.
@@ -60,8 +61,8 @@ func newTestRouter(t *testing.T, opts auth.Options, checks ...Check) (http.Handl
 		t.Fatal(err)
 	}
 	queries := db.New(database)
-	queries.CreateUser(ctx, db.CreateUserParams{Username: "aashish", PasswordHash: adminHash(), Role: auth.RoleAdmin, CreatedAt: 1})
-	queries.CreateUser(ctx, db.CreateUserParams{Username: "guest", PasswordHash: guestHash(), Role: auth.RoleUser, CreatedAt: 1})
+	queries.CreateUser(ctx, db.CreateUserParams{ID: auth.FirstAdminID, Username: "aashish", PasswordHash: adminHash(), Role: auth.RoleAdmin, CreatedAt: 1})
+	queries.CreateUser(ctx, db.CreateUserParams{ID: guestID, Username: "guest", PasswordHash: guestHash(), Role: auth.RoleUser, CreatedAt: 1})
 
 	logs := &syncBuffer{}
 	logger := slog.New(slog.NewTextHandler(logs, nil))
