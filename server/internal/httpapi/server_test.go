@@ -18,7 +18,7 @@ func TestServeAnswersThenShutsDownCleanly(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, NewRouter(logger), logger) }()
+	go func() { done <- Serve(ctx, ln, NewRouter(logger, nil), logger) }()
 
 	resp, err := http.Get("http://" + ln.Addr().String() + "/healthz")
 	if err != nil {
@@ -49,7 +49,7 @@ func TestServeReturnsErrorWhenListenerFails(t *testing.T) {
 	}
 	ln.Close()
 
-	if err := Serve(context.Background(), ln, NewRouter(logger), logger); err == nil {
+	if err := Serve(context.Background(), ln, NewRouter(logger, nil), logger); err == nil {
 		t.Fatal("Serve returned nil for a closed listener, want an error")
 	}
 }

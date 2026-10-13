@@ -4,8 +4,9 @@ A private cloud that runs on my Windows laptop. I use it **only through a web
 browser**, from my phone, from anywhere. Built for one person, but designed so
 it could grow to more users without a rewrite.
 
-Status: **Phase 1, step 1 done** — the phone reaches `GET /healthz` over Tailscale on
-mobile data ([`server/README.md`](../server/README.md)). Next: step 2.
+Status: **Phase 1, step 2 built** — settings file, SQLite database, `user create`
+and `GET /readyz`. It is done once the phone shows `/readyz` ok
+([`server/README.md`](../server/README.md)). Next: step 3.
 
 ---
 
@@ -37,7 +38,7 @@ mobile data ([`server/README.md`](../server/README.md)). Next: step 2.
 
 | Layer | Choice | Why |
 |---|---|---|
-| Language | **Go** (1.24 or newer) | One `.exe`, nothing to install at runtime, low memory, very fast, easy to run as a Windows service. `os.Root` (Go 1.24) blocks `..\` and symlink escapes when touching files. |
+| Language | **Go** (1.26 or newer — what current libraries require) | One `.exe`, nothing to install at runtime, low memory, very fast, easy to run as a Windows service. `os.Root` (Go 1.24) blocks `..\` and symlink escapes when touching files. |
 | HTTP | Go standard library `net/http` | Method + path routing, HTTP/2, `Range` requests (video seeking) built in. No framework needed. |
 | Logging | `log/slog` (standard library) | Structured JSON logs. |
 | Database | **SQLite** in WAL mode via `modernc.org/sqlite` | Embedded, zero maintenance, microsecond queries. Pure Go, so no C compiler needed on Windows. |
@@ -156,9 +157,10 @@ log_level    = "info"
 
 Phase 1:
 ```sql
-users     (id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL,
-           password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'admin',
-           created_at INTEGER NOT NULL)
+users     (id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL,   -- step 2 ✅
+           password_hash TEXT NOT NULL,                           -- argon2id
+           role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+           created_at INTEGER NOT NULL) STRICT
 
 sessions  (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id),
            token_hash BLOB UNIQUE NOT NULL,      -- SHA-256 of the cookie, never the token itself
@@ -290,7 +292,7 @@ my phone.
 | Step | Build | Done when |
 |---|---|---|
 | 1 ✅ | Go module, `ashcloud serve`, `GET /healthz`, `tailscale serve` | Phone on **mobile data** shows `ok` at the `ts.net` address. Proves the whole network path. |
-| 2 | Config file, `ashcloud init`, SQLite + migrations, `user create`, `GET /readyz` | `/readyz` reports DB + storage OK. |
+| 2 (built) | Config file, `ashcloud init`, SQLite + migrations, `user create`, `GET /readyz` | `/readyz` reports DB + storage OK. |
 | 3 | Login / logout / `me`, sessions, full middleware chain, login rate limit | Can log in from the phone; wrong passwords get rate-limited; cookie is HttpOnly/Secure/Strict. |
 | 4 | List folder, download with `Range` | Browse folders, open a photo, scrub through a video on the phone. |
 | 5 | Upload, new folder, move/rename, delete | Upload a photo from the camera roll; rename it; delete it. |

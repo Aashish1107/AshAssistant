@@ -13,7 +13,7 @@ import (
 func newTestRouter(t *testing.T) (http.Handler, *bytes.Buffer) {
 	t.Helper()
 	var logs bytes.Buffer
-	return NewRouter(slog.New(slog.NewTextHandler(&logs, nil))), &logs
+	return NewRouter(slog.New(slog.NewTextHandler(&logs, nil)), nil), &logs
 }
 
 func TestHealthz(t *testing.T) {

@@ -1,0 +1,11 @@
+# Generates type-safe Go for the SQL in internal/db/queries.
+# After changing a query or migration, run from this folder:  sqlc generate
+version: "2"
+sql:
+  - engine: "sqlite"
+    schema: "internal/db/migrations"
+    queries: "internal/db/queries"
+    gen:
+      go:
+        package: "db"
+        out: "internal/db"
