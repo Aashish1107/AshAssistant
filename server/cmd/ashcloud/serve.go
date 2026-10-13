@@ -15,6 +15,7 @@ import (
 	"github.com/Aashish1107/AshAssistant/server/internal/auth"
 	"github.com/Aashish1107/AshAssistant/server/internal/config"
 	"github.com/Aashish1107/AshAssistant/server/internal/db"
+	"github.com/Aashish1107/AshAssistant/server/internal/drive"
 	"github.com/Aashish1107/AshAssistant/server/internal/files"
 	"github.com/Aashish1107/AshAssistant/server/internal/httpapi"
 	"github.com/Aashish1107/AshAssistant/server/internal/media"
@@ -78,12 +79,23 @@ func runServe(ctx context.Context, args []string, stderr io.Writer) error {
 		return err
 	}
 
+	store := files.NewStore(cfg.StorageDir)
+	changes := drive.NewService(database, store, drive.Options{Logger: logger})
+	if err := changes.Recover(ctx); err != nil {
+		return fmt.Errorf("check unfinished uploads: %w", err)
+	}
+	go changes.Run(ctx) // empties old trash and abandoned uploads, hourly
+	// When stopping, interrupt uploads so each saves its progress at once,
+	// rather than holding up the shutdown; browsers continue them later.
+	context.AfterFunc(ctx, changes.StopUploads)
+
 	logger.Info("Ash Cloud started", "url", "http://"+ln.Addr().String(), "version", version, "settings", *configPath)
 	router := httpapi.NewRouter(httpapi.Deps{
 		Logger:    logger,
 		Readiness: readiness,
 		Auth:      auth.NewService(database, auth.Options{SessionTTL: cfg.SessionDuration(), Logger: logger}),
-		Files:     files.NewStore(cfg.StorageDir),
+		Files:     store,
+		Drive:     changes,
 		Media:     library,
 	})
 	err = httpapi.Serve(ctx, ln, router, logger)

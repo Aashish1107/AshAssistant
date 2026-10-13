@@ -28,6 +28,25 @@ type Session struct {
 	ExpiresAt  int64
 }
 
+type Trash struct {
+	ID           string
+	UserID       string
+	OriginalPath string
+	IsFolder     int64
+	DeletedAt    int64
+}
+
+type Upload struct {
+	UserID    string
+	ID        string
+	Path      string
+	Size      int64
+	Modified  int64
+	Synced    int64
+	CreatedAt int64
+	UpdatedAt int64
+}
+
 type User struct {
 	ID           string
 	Username     string

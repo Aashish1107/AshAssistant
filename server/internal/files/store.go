@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Aashish1107/AshAssistant/server/internal/storage"
@@ -22,6 +23,9 @@ var (
 	ErrNotAFolder = errors.New("that's a file, not a folder")
 	ErrIsAFolder  = errors.New("that's a folder, not a file")
 	ErrNoAccess   = errors.New("Windows won't let the server read that")
+	ErrExists     = errors.New("something with that name already exists")
+	ErrInUse      = errors.New("that file is open in another program (or still playing); try again in a moment")
+	ErrDiskFull   = errors.New("the laptop's drive is full")
 )
 
 // hiddenNames are files the operating system creates in folders by itself.
@@ -46,9 +50,13 @@ type File struct {
 	ContentType string
 }
 
-// Store reads users' files from the storage folder.
+// Store reads and changes users' files in the storage folder.
 type Store struct {
 	storageDir string
+	// writeMu makes "check the name is free, then use it" atomic for
+	// creating, moving, deleting and finishing uploads. Each is a quick
+	// rename or mkdir, so holding it is cheap.
+	writeMu sync.Mutex
 }
 
 func NewStore(storageDir string) *Store {
@@ -86,7 +94,7 @@ func (s *Store) List(userID, path string) (string, []Entry, error) {
 	entries := make([]Entry, 0, len(items))
 	for _, item := range items {
 		name := item.Name()
-		if !ValidName(name) || slices.Contains(hiddenNames, strings.ToLower(name)) {
+		if !ValidName(name) || isReserved(name) || slices.Contains(hiddenNames, strings.ToLower(name)) {
 			continue
 		}
 		info, err := item.Info()
@@ -202,11 +210,25 @@ func (s *Store) openRoot(userID string) (*os.Root, error) {
 	return os.OpenRoot(dir)
 }
 
+// TranslateError turns an error from reading or writing a user's file into
+// this package's errors.
+func TranslateError(err error) error {
+	return translate(err)
+}
+
 // translate turns file system errors into this package's errors.
 func translate(err error) error {
 	switch {
+	case err == nil:
+		return nil
 	case errors.Is(err, fs.ErrNotExist):
 		return ErrNotFound
+	case errors.Is(err, fs.ErrExist):
+		return ErrExists
+	case isInUse(err):
+		return ErrInUse
+	case isDiskFull(err):
+		return ErrDiskFull
 	case errors.Is(err, fs.ErrPermission):
 		return ErrNoAccess
 	case strings.Contains(err.Error(), "path escapes from parent"):

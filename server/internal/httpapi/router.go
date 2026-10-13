@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Aashish1107/AshAssistant/server/internal/auth"
+	"github.com/Aashish1107/AshAssistant/server/internal/drive"
 	"github.com/Aashish1107/AshAssistant/server/internal/files"
 	"github.com/Aashish1107/AshAssistant/server/internal/media"
 	"github.com/Aashish1107/AshAssistant/server/internal/webui"
@@ -16,8 +17,8 @@ import (
 const (
 	// readyTimeout bounds how long /readyz waits for all its checks.
 	readyTimeout = 5 * time.Second
-	// apiTimeout bounds every /api request except file downloads, which
-	// take as long as the file needs.
+	// apiTimeout bounds every /api request except file downloads and
+	// uploads, which take as long as the file needs.
 	apiTimeout = 30 * time.Second
 )
 
@@ -33,6 +34,7 @@ type Deps struct {
 	Readiness []Check // what /readyz checks
 	Auth      *auth.Service
 	Files     *files.Store
+	Drive     *drive.Service
 	Media     *media.Library
 }
 
@@ -42,7 +44,7 @@ type Deps struct {
 //	request ID → access log → panic recovery → security headers →
 //	cross-origin check → CSRF header check → route (→ login check, API timeout)
 func NewRouter(deps Deps) http.Handler {
-	a := &api{logger: deps.Logger, auth: deps.Auth, files: deps.Files, media: deps.Media}
+	a := &api{logger: deps.Logger, auth: deps.Auth, files: deps.Files, drive: deps.Drive, media: deps.Media}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", handleHealthz)
@@ -57,6 +59,13 @@ func NewRouter(deps Deps) http.Handler {
 	mux.Handle("GET /api/v1/me", withTimeout(a.requireLogin(http.HandlerFunc(a.me))))
 	mux.Handle("GET /api/v1/files", withTimeout(a.requireLogin(http.HandlerFunc(a.listFiles))))
 	mux.Handle("GET /api/v1/files/content", a.requireLogin(http.HandlerFunc(a.fileContent))) // no timeout
+	mux.Handle("POST /api/v1/files/folder", withTimeout(a.requireLogin(http.HandlerFunc(a.makeFolder))))
+	mux.Handle("POST /api/v1/files/move", withTimeout(a.requireLogin(http.HandlerFunc(a.moveFile))))
+	mux.Handle("DELETE /api/v1/files", withTimeout(a.requireLogin(http.HandlerFunc(a.deleteFile))))
+	mux.Handle("POST /api/v1/trash/restore", withTimeout(a.requireLogin(http.HandlerFunc(a.restoreFile))))
+	mux.Handle("POST /api/v1/uploads/{id}", withTimeout(a.requireLogin(http.HandlerFunc(a.openUpload))))
+	mux.Handle("PUT /api/v1/uploads/{id}", a.requireLogin(http.HandlerFunc(a.putUpload))) // no timeout, only an idle one
+	mux.Handle("DELETE /api/v1/uploads/{id}", withTimeout(a.requireLogin(http.HandlerFunc(a.cancelUpload))))
 	mux.Handle("GET /api/v1/media/info", withTimeout(a.requireLogin(http.HandlerFunc(a.mediaInfo))))
 	mux.Handle("POST /api/v1/media/audio", withTimeout(a.requireLogin(http.HandlerFunc(a.prepareAudio))))
 	mux.Handle("GET /api/v1/media/audio", a.requireLogin(http.HandlerFunc(a.audioTrack))) // no timeout

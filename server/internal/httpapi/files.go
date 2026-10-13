@@ -8,6 +8,7 @@ import (
 	"path"
 	"time"
 
+	"github.com/Aashish1107/AshAssistant/server/internal/drive"
 	"github.com/Aashish1107/AshAssistant/server/internal/files"
 )
 
@@ -38,14 +39,18 @@ func (a *api) listFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	listing := listingJSON{Path: folder, Entries: make([]entryJSON, 0, len(entries))}
 	for _, entry := range entries {
-		item := entryJSON{Name: entry.Name, Path: entry.Path, Type: "folder", Modified: entry.Modified.UTC()}
-		if !entry.IsFolder {
-			size := entry.Size
-			item.Type, item.Size, item.ContentType = "file", &size, entry.ContentType
-		}
-		listing.Entries = append(listing.Entries, item)
+		listing.Entries = append(listing.Entries, toEntryJSON(entry))
 	}
 	writeJSON(w, http.StatusOK, listing)
+}
+
+func toEntryJSON(entry files.Entry) entryJSON {
+	item := entryJSON{Name: entry.Name, Path: entry.Path, Type: "folder", Modified: entry.Modified.UTC()}
+	if !entry.IsFolder {
+		size := entry.Size
+		item.Type, item.Size, item.ContentType = "file", &size, entry.ContentType
+	}
+	return item
 }
 
 // fileContent: GET /api/v1/files/content?path=/Videos/trip.mov[&inline=1]
@@ -106,6 +111,82 @@ func (a *api) fileContent(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, name, file.Modified, file.File)
 }
 
+type pathRequest struct {
+	Path string `json:"path"`
+}
+
+// makeFolder: POST /api/v1/files/folder {"path": "/Photos/2026"}
+func (a *api) makeFolder(w http.ResponseWriter, r *http.Request) {
+	var request pathRequest
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	entry, err := a.drive.MakeFolder(r.Context(), sessionFrom(r.Context()).User.ID, clientFrom(r), request.Path)
+	if err != nil {
+		a.fileError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, toEntryJSON(entry))
+}
+
+type moveRequest struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// moveFile: POST /api/v1/files/move {"from": "/a.jpg", "to": "/Photos/b.jpg"}
+// renames or moves a file or folder. It never overwrites anything.
+func (a *api) moveFile(w http.ResponseWriter, r *http.Request) {
+	var request moveRequest
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	entry, err := a.drive.Move(r.Context(), sessionFrom(r.Context()).User.ID, clientFrom(r), request.From, request.To)
+	if err != nil {
+		a.fileError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toEntryJSON(entry))
+}
+
+type deletedJSON struct {
+	TrashID string `json:"trash_id"` // for POST /api/v1/trash/restore
+}
+
+// deleteFile: DELETE /api/v1/files?path=/Photos/old.jpg moves a file or
+// folder to the trash, where it stays restorable for 30 days.
+func (a *api) deleteFile(w http.ResponseWriter, r *http.Request) {
+	trashID, err := a.drive.Delete(r.Context(), sessionFrom(r.Context()).User.ID, clientFrom(r), r.URL.Query().Get("path"))
+	if err != nil {
+		a.fileError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, deletedJSON{TrashID: trashID})
+}
+
+type restoreRequest struct {
+	ID string `json:"id"`
+}
+
+// restoreFile: POST /api/v1/trash/restore {"id": "<trash_id>"} puts a deleted
+// item back where it was.
+func (a *api) restoreFile(w http.ResponseWriter, r *http.Request) {
+	var request restoreRequest
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	entry, err := a.drive.Restore(r.Context(), sessionFrom(r.Context()).User.ID, clientFrom(r), request.ID)
+	if errors.Is(err, drive.ErrTrashNotFound) {
+		writeError(w, http.StatusNotFound, "not_in_trash", "That item isn't in the trash any more")
+		return
+	}
+	if err != nil {
+		a.fileError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toEntryJSON(entry))
+}
+
 // fileError maps file errors to responses.
 func (a *api) fileError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
@@ -118,7 +199,15 @@ func (a *api) fileError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, files.ErrIsAFolder):
 		writeError(w, http.StatusBadRequest, "is_a_folder", "That's a folder, not a file")
 	case errors.Is(err, files.ErrNoAccess):
-		writeError(w, http.StatusForbidden, "no_access", "The server isn't allowed to read that")
+		writeError(w, http.StatusForbidden, "no_access", "Windows won't let the server use that")
+	case errors.Is(err, files.ErrExists):
+		writeError(w, http.StatusConflict, "exists", "Something with that name is already there")
+	case errors.Is(err, files.ErrInUse):
+		writeError(w, http.StatusConflict, "in_use", "That file is open in another program (or still playing) - try again in a moment")
+	case errors.Is(err, files.ErrIntoItself):
+		writeError(w, http.StatusBadRequest, "into_itself", "A folder can't be moved into itself")
+	case errors.Is(err, files.ErrDiskFull):
+		writeError(w, http.StatusInsufficientStorage, "disk_full", "The laptop's drive is too full for that")
 	default:
 		a.serverError(w, r, err)
 	}

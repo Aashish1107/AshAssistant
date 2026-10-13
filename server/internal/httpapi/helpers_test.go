@@ -15,6 +15,7 @@ import (
 
 	"github.com/Aashish1107/AshAssistant/server/internal/auth"
 	"github.com/Aashish1107/AshAssistant/server/internal/db"
+	"github.com/Aashish1107/AshAssistant/server/internal/drive"
 	"github.com/Aashish1107/AshAssistant/server/internal/files"
 	"github.com/Aashish1107/AshAssistant/server/internal/media"
 )
@@ -87,11 +88,13 @@ func buildTestRouter(t *testing.T, opts auth.Options, tools media.Tools, toolsEr
 	if err != nil {
 		t.Fatal(err)
 	}
+	store := files.NewStore(storageDir)
 	router := NewRouter(Deps{
 		Logger:    logger,
 		Readiness: checks,
 		Auth:      auth.NewService(database, opts),
-		Files:     files.NewStore(storageDir),
+		Files:     store,
+		Drive:     drive.NewService(database, store, drive.Options{Logger: logger, SyncEvery: 4096}),
 		Media:     library,
 	})
 	return router, logs, home

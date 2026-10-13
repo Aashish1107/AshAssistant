@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Aashish1107/AshAssistant/server/internal/auth"
+	"github.com/Aashish1107/AshAssistant/server/internal/drive"
 	"github.com/Aashish1107/AshAssistant/server/internal/files"
 	"github.com/Aashish1107/AshAssistant/server/internal/media"
 )
@@ -25,6 +26,7 @@ type api struct {
 	logger *slog.Logger
 	auth   *auth.Service
 	files  *files.Store
+	drive  *drive.Service
 	media  *media.Library
 }
 
