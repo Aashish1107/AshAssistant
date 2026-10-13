@@ -4,8 +4,8 @@ A private cloud that runs on my Windows laptop. I use it **only through a web
 browser**, from my phone, from anywhere. Built for one person, but designed so
 it could grow to more users without a rewrite.
 
-Status: **Phase 1, step 1 built** — `ashcloud serve` answers `GET /healthz`.
-It is done once the phone test in [`server/README.md`](../server/README.md) shows `ok`. Next: step 2.
+Status: **Phase 1, step 1 done** — the phone reaches `GET /healthz` over Tailscale on
+mobile data ([`server/README.md`](../server/README.md)). Next: step 2.
 
 ---
 
@@ -289,7 +289,7 @@ my phone.
 ### Phase 1 — A working server
 | Step | Build | Done when |
 |---|---|---|
-| 1 (built) | Go module, `ashcloud serve`, `GET /healthz`, `tailscale serve` | Phone on **mobile data** shows `ok` at the `ts.net` address. Proves the whole network path. |
+| 1 ✅ | Go module, `ashcloud serve`, `GET /healthz`, `tailscale serve` | Phone on **mobile data** shows `ok` at the `ts.net` address. Proves the whole network path. |
 | 2 | Config file, `ashcloud init`, SQLite + migrations, `user create`, `GET /readyz` | `/readyz` reports DB + storage OK. |
 | 3 | Login / logout / `me`, sessions, full middleware chain, login rate limit | Can log in from the phone; wrong passwords get rate-limited; cookie is HttpOnly/Secure/Strict. |
 | 4 | List folder, download with `Range` | Browse folders, open a photo, scrub through a video on the phone. |
