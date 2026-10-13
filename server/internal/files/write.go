@@ -242,6 +242,20 @@ func (s *Store) UploadSize(userID, uploadID string) (int64, error) {
 	return info.Size(), nil
 }
 
+// Stat describes the file or folder at path.
+func (s *Store) Stat(userID, path string) (Entry, error) {
+	canonical, relative, err := Clean(path)
+	if err != nil {
+		return Entry{}, err
+	}
+	root, err := s.openRoot(userID)
+	if err != nil {
+		return Entry{}, err
+	}
+	defer root.Close()
+	return entryAt(root, canonical, relative)
+}
+
 // FreeSpace returns how many bytes can still be stored.
 func (s *Store) FreeSpace() (uint64, error) {
 	return freeSpace(s.storageDir)

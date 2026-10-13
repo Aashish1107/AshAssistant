@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -33,7 +34,7 @@ type fixture struct {
 	home     string
 }
 
-func newFixture(t *testing.T, opts Options) fixture {
+func newFixture(t testing.TB, opts Options) fixture {
 	t.Helper()
 	ctx := context.Background()
 	database, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
@@ -192,12 +193,19 @@ func TestOffsets(t *testing.T) {
 		t.Fatalf("write ahead = %v", err)
 	}
 
-	// Behind it (the browser can't know exactly what arrived): the extra
-	// bytes are replaced.
-	up.Offset = 1000
-	result, err := f.write(t, up, bytes.NewReader(content[1000:]))
+	// Behind it (a browser resending the whole request by itself): also
+	// refused, so nothing is sent twice.
+	up.Offset = 0
+	if _, err := f.write(t, up, bytes.NewReader(content)); !errors.As(err, &wrong) || wrong.Offset != 3000 {
+		t.Fatalf("write behind = %v", err)
+	}
+	if size := f.partSize(t); size != 3000 {
+		t.Errorf("the refused requests changed the part file: %d bytes", size)
+	}
+	up.Offset = 3000
+	result, err := f.write(t, up, bytes.NewReader(content[3000:]))
 	if err != nil || result.File == nil {
-		t.Fatalf("write behind = %+v, %v", result, err)
+		t.Fatalf("write from the right place = %+v, %v", result, err)
 	}
 	got, _ := os.ReadFile(filepath.Join(f.home, "Photos", "IMG_0001.jpg"))
 	if !bytes.Equal(got, content) {
@@ -264,6 +272,18 @@ func TestFinishedUploadIsRemembered(t *testing.T) {
 		t.Error("the file was uploaded twice")
 	}
 
+	// Deleted since: sending it again uploads it again.
+	if err := os.Remove(filepath.Join(f.home, "Photos", "IMG_0001.jpg")); err != nil {
+		t.Fatal(err)
+	}
+	result, err = f.write(t, up, strings.NewReader("hello"))
+	if err != nil || result.File == nil || result.File.Path != "/Photos/IMG_0001.jpg" {
+		t.Fatalf("upload after deleting = %+v, %v", result, err)
+	}
+	if _, err := os.Stat(filepath.Join(f.home, "Photos", "IMG_0001.jpg")); err != nil {
+		t.Error("the file wasn't uploaded again after being deleted")
+	}
+
 	// After a while it's forgotten, and the same file uploads as a copy.
 	f.service.now = func() time.Time { return time.Now().Add(rememberFinished + time.Minute) }
 	result, err = f.write(t, up, strings.NewReader("hello"))
@@ -306,13 +326,20 @@ func TestANewRequestTakesOver(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	// The phone switched networks and sends everything again.
-	result, err := f.write(t, up, bytes.NewReader(content))
-	if err != nil || result.File == nil {
-		t.Fatalf("second request = %+v, %v", result, err)
+	// The phone switched networks and sends everything again. The stuck
+	// request is stopped at once, keeping what it got, and the new one is
+	// told to continue from there.
+	var wrong *OffsetError
+	if _, err := f.write(t, up, bytes.NewReader(content)); !errors.As(err, &wrong) || wrong.Offset != 2000 {
+		t.Fatalf("second request = %v, want an OffsetError at 2000", err)
 	}
 	if err := <-firstDone; !errors.Is(err, ErrTakenOver) {
 		t.Errorf("first request = %v, want ErrTakenOver", err)
+	}
+	up.Offset = 2000
+	result, err := f.write(t, up, bytes.NewReader(content[2000:]))
+	if err != nil || result.File == nil {
+		t.Fatalf("third request = %+v, %v", result, err)
 	}
 	got, _ := os.ReadFile(filepath.Join(f.home, "Photos", "IMG_0001.jpg"))
 	if !bytes.Equal(got, content) {
@@ -508,5 +535,34 @@ func TestTail(t *testing.T) {
 	got := tail(long, 64)
 	if !strings.HasSuffix(got, "/IMG_0001.jpg") || !strings.HasPrefix(got, "…") || len([]rune(got)) != 64 {
 		t.Errorf("tail = %q", got)
+	}
+}
+
+// zeros is a body of n zero bytes, read as fast as possible.
+type zeros struct{ n int64 }
+
+func (z *zeros) Read(p []byte) (int, error) {
+	if z.n <= 0 {
+		return 0, io.EOF
+	}
+	n := min(int64(len(p)), z.n)
+	clear(p[:n])
+	z.n -= n
+	return int(n), nil
+}
+
+// BenchmarkWrite measures how fast an upload goes to disk, without the
+// network: go test -bench Write ./internal/drive
+func BenchmarkWrite(b *testing.B) {
+	const size = 256 << 20
+	f := newFixture(b, Options{})
+	b.SetBytes(size)
+	for i := 0; b.Loop(); i++ {
+		up := Upload{ID: fmt.Sprintf("Benchmark-upload-%05d", i), Path: "/Photos/bench.bin", Size: size}
+		result, err := f.service.Write(context.Background(), userID, client, up, &zeros{size}, noStop)
+		if err != nil || result.File == nil {
+			b.Fatal(result, err)
+		}
+		os.Remove(filepath.Join(f.home, filepath.FromSlash(result.File.Path)))
 	}
 }

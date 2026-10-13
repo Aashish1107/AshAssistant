@@ -191,7 +191,7 @@ func (a *api) restoreFile(w http.ResponseWriter, r *http.Request) {
 func (a *api) fileError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, files.ErrBadPath):
-		writeError(w, http.StatusBadRequest, "bad_path", "That path isn't valid. Use / between folder names, with no . or .. parts.")
+		writeError(w, http.StatusBadRequest, "bad_path", `That name or path isn't allowed. Windows names can't contain < > : " / \ | ? *, end with a dot or space, or be a reserved name like CON; paths use / between folders, with no . or .. parts.`)
 	case errors.Is(err, files.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "There's nothing at that path")
 	case errors.Is(err, files.ErrNotAFolder):

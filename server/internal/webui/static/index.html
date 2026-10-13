@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/assets/app.css">
   <script src="/assets/player.js" defer></script>
   <script src="/assets/app.js" defer></script>
+  <script src="/assets/uploads.js" defer></script>
 </head>
 <body>
   <main>
@@ -28,8 +29,22 @@
 
     <section id="files" hidden aria-label="Your files">
       <nav id="crumbs" aria-label="Folder"></nav>
+      <div class="file-actions">
+        <button id="upload-button" type="button">Upload</button>
+        <button id="new-folder" type="button" class="secondary">New folder</button>
+        <input id="file-input" type="file" multiple hidden>
+      </div>
       <ul id="entries"></ul>
-      <p id="empty" class="note" hidden></p>
+      <p id="empty" class="note" hidden>This folder is empty. Tap Upload to add files.</p>
+    </section>
+
+    <section id="uploads" hidden aria-label="Uploads">
+      <div class="uploads-head">
+        <strong id="uploads-summary" role="status"></strong>
+        <button id="uploads-clear" type="button" class="secondary small" hidden>Clear</button>
+      </div>
+      <p id="uploads-note" class="note">Keep this page open until uploads finish. If one stops, pick the same file again and it continues where it left off.</p>
+      <ul id="upload-list"></ul>
     </section>
 
     <section id="player" hidden aria-label="Video player">
@@ -65,5 +80,47 @@
 
     <p id="error" class="error" role="alert"></p>
   </main>
+
+  <!-- What you can do with a file or folder (the ⋯ button). -->
+  <dialog id="item-menu" aria-labelledby="item-menu-title">
+    <p id="item-menu-title" class="dialog-title"></p>
+    <div class="sheet">
+      <a id="item-download" class="sheet-button" href="#">Download</a>
+      <button id="item-rename" type="button" class="sheet-button">Rename</button>
+      <button id="item-move" type="button" class="sheet-button">Move to…</button>
+      <button id="item-delete" type="button" class="sheet-button danger">Delete</button>
+      <button id="item-cancel" type="button" class="sheet-button secondary">Cancel</button>
+    </div>
+  </dialog>
+
+  <!-- Asks for a name (rename, new folder). -->
+  <dialog id="ask" aria-labelledby="ask-title">
+    <form id="ask-form" method="dialog">
+      <p id="ask-title" class="dialog-title"></p>
+      <input id="ask-input" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+      <p id="ask-error" class="error" role="alert"></p>
+      <div class="dialog-buttons">
+        <button id="ask-cancel" type="button" class="secondary">Cancel</button>
+        <button id="ask-ok" type="submit">OK</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Picks the folder to move something into. -->
+  <dialog id="move" aria-labelledby="move-title">
+    <p id="move-title" class="dialog-title"></p>
+    <nav id="move-crumbs" aria-label="Folder to move into"></nav>
+    <ul id="move-folders"></ul>
+    <p id="move-error" class="error" role="alert"></p>
+    <div class="dialog-buttons">
+      <button id="move-cancel" type="button" class="secondary">Cancel</button>
+      <button id="move-here" type="button">Move here</button>
+    </div>
+  </dialog>
+
+  <div id="toast" role="status" hidden>
+    <span id="toast-text"></span>
+    <button id="toast-action" type="button" hidden></button>
+  </div>
 </body>
 </html>

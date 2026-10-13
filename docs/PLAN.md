@@ -4,11 +4,13 @@ A private cloud that runs on my Windows laptop. I use it **only through a web
 browser**, from my phone, from anywhere. Built for one person, but designed so
 it could grow to more users without a rewrite.
 
-Status: **Phase 1, step 4 built** — browse folders and open or stream files (video
-scrubbing via Range requests), plus Nano ID user IDs and, pulled forward from
-Phase 3, a video player with −10 s / +10 s and audio track switching. Step 4 is
-done once a video from the phone plays and scrubs on the phone
-([`server/README.md`](../server/README.md)). Next: step 5.
+Status: **Phase 1, step 5 built** — upload (fast and resumable), new folder,
+rename/move, delete to a trash with Undo. Resumable uploads and trash/restore
+were pulled forward from Phase 2. Earlier steps: browse folders, open or stream
+files (video scrubbing via Range requests), Nano ID user IDs, and, pulled
+forward from Phase 3, a video player with −10 s / +10 s and audio track
+switching. Step 5 is done once a photo from the phone uploads, renames and
+deletes ([`server/README.md`](../server/README.md)). Next: step 6.
 
 ---
 
@@ -51,7 +53,7 @@ done once a video from the phone plays and scrubs on the phone
 | Web UI | **Svelte + TypeScript + Vite** | Tiny bundles → fast on phones. Built files are embedded in the Go binary with `go:embed`. |
 | Remote access | **Tailscale** + `tailscale serve` | Encrypted, works behind any router/mobile network, real HTTPS certificate, no ports opened, usually a direct phone↔laptop connection. |
 | Media | `ffmpeg` / `ffprobe` (installed with `winget install Gyan.FFmpeg`), run as separate programs | Lists a video's audio tracks and extracts one for the player. Optional: without it, only audio track switching is off. |
-| Later phases | `gopsutil` + `distatus/battery` (status), `tus/tusd` (resumable uploads), `coder/websocket` (live updates, terminal), Windows ConPTY (terminal), `xterm.js` (terminal UI), `fsnotify` (file watcher), `go-webauthn` (passkeys, optional) | |
+| Later phases | `gopsutil` + `distatus/battery` (status), `coder/websocket` (live updates, terminal), Windows ConPTY (terminal), `xterm.js` (terminal UI), `fsnotify` (file watcher), `go-webauthn` (passkeys, optional) | |
 
 **Why Go over Python:** Python (FastAPI) would work for one person, but needs a
 Python install + virtualenv on the laptop, uses noticeably more CPU/RAM per
@@ -95,11 +97,14 @@ Files are only touched through the `Storage` interface (local disk via
 `os.Root` today; could become S3 later without changing handlers).
 
 ### Example: uploading a photo, end to end
-1. Tap **Upload** in the app → `PUT /api/v1/files/content?path=/Photos/IMG_1.jpg` with the session cookie and `X-Requested-With` header (progress bar from upload events).
-2. Phone Tailscale → WireGuard → laptop Tailscale terminates HTTPS → forwards to `127.0.0.1:8080`.
-3. Middleware chain: request ID → recover → log → headers → limits → auth → CSRF.
-4. `FilesService.Upload` checks the name against Windows rules → `Storage.Create` (via `os.Root`, can't escape the user folder) → body streamed to a temp file → flushed → atomically renamed into place → `audit_log` row written.
-5. `201 Created` + the new file's JSON → the app adds it to the list.
+1. Tap **Upload** in the app. The browser derives the upload's ID from the folder and the file's name, size and date (SHA-256), so picking the same file again later finds the same upload.
+2. `PUT /api/v1/uploads/{id}?path=/Photos/IMG_1.jpg&size=…&modified=…` with `Upload-Offset: 0`, the session cookie and the `X-Requested-With` header; the body is the file itself (progress bar from XHR upload events). Files of 8 MB or more first send `POST` to the same URL: it checks the folder and free space and says where an unfinished upload stopped.
+3. Phone Tailscale → WireGuard → laptop Tailscale terminates HTTPS → forwards to `127.0.0.1:8080`.
+4. Middleware chain: request ID → log → recover → headers → cross-origin → CSRF header → auth (no timeout for uploads; a 60 s idle timeout instead).
+5. `drive.Service.Write`: checks the name against Windows rules → records the upload (`uploads` table) → streams the body into `.ashcloud-uploads/<id>.part` inside the user's folder (via `os.Root`), 1 MiB per write, flushing to disk every 32 MiB in the background → on the last byte: flush, rename into place (`IMG_1 (1).jpg` if taken), set the photo's date, delete the `uploads` row, write `audit_log`.
+6. `201 Created` + the new file's JSON → the app reloads the folder.
+
+If the connection drops, the part file keeps what arrived; the app waits for the network, asks (`POST`) where to continue and sends only the rest. A resend on a new connection takes over from a stalled one at once.
 
 ---
 
@@ -180,8 +185,23 @@ audit_log (id INTEGER PRIMARY KEY,                                  -- step 3 �
            ip TEXT NOT NULL, at INTEGER NOT NULL) STRICT
 ```
 
-Later phases add: `uploads` (resumable upload state, P2), `trash` (P2),
-`file_index` + FTS5 search table and `thumbnails` (P3), `passkeys` (P5).
+```sql
+uploads   (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- step 5 ✅
+           id TEXT NOT NULL,                      -- chosen by the browser, see §3
+           path TEXT NOT NULL, size INTEGER NOT NULL,
+           modified INTEGER NOT NULL,             -- the original file's date, Unix ms
+           synced INTEGER NOT NULL DEFAULT 0,     -- bytes known to be on disk (after a power cut, resume here)
+           created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+           PRIMARY KEY (user_id, id)) STRICT
+
+trash     (id TEXT NOT NULL PRIMARY KEY,          -- Nano ID, also the folder name in .ashcloud-trash
+           user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- step 5 ✅
+           original_path TEXT NOT NULL, is_folder INTEGER NOT NULL,
+           deleted_at INTEGER NOT NULL) STRICT    -- emptied after 30 days
+```
+
+Later phases add: `file_index` + FTS5 search table and `thumbnails` (P3),
+`passkeys` (P5).
 
 **User IDs.** The first admin created on an empty server is `"1"`; every
 other user gets a random 21-character Nano ID (same alphabet and length as
@@ -212,14 +232,16 @@ Conventions:
 | `GET /api/v1/me` | Who am I + settings the UI needs | users | 1 |
 | `GET /api/v1/files?path=` | List a folder (name, size, modified, type) | Storage | 1 |
 | `GET /api/v1/files/content?path=` | Download / stream; `Range` + `ETag`; `?inline=1` to view in browser | Storage | 1 |
-| `PUT /api/v1/files/content?path=` | Upload, streamed to disk; auto-renames `photo (1).jpg` on clash | Storage, audit | 1 |
-| `POST /api/v1/files/folder` | Create folder `{path}` | Storage, audit | 1 |
-| `POST /api/v1/files/move` | Rename or move `{from, to}` | Storage, audit | 1 |
-| `DELETE /api/v1/files?path=` | Delete (moves to trash from Phase 2) | Storage, audit | 1 |
+| `POST /api/v1/uploads/{id}?path=&size=&modified=` | Start an upload / ask where it stopped; checks folder and free space | uploads, Storage | 1 ✅ |
+| `PUT /api/v1/uploads/{id}?…` + `Upload-Offset` | Upload, streamed to disk, resumable; auto-renames `photo (1).jpg` on clash | uploads, Storage, audit | 1 ✅ |
+| `DELETE /api/v1/uploads/{id}` | Cancel an upload | uploads, Storage | 1 ✅ |
+| `POST /api/v1/files/folder` | Create folder `{path}` | Storage, audit | 1 ✅ |
+| `POST /api/v1/files/move` | Rename or move `{from, to}`; never overwrites | Storage, audit | 1 ✅ |
+| `DELETE /api/v1/files?path=` | Delete: moves to the trash, returns `trash_id` | trash, Storage, audit | 1 ✅ |
+| `POST /api/v1/trash/restore` | Undo a delete `{id}` | trash, Storage, audit | 1 ✅ (early) |
 | `GET /api/v1/sessions` · `DELETE /api/v1/sessions/{id}` | See / log out my devices | sessions | 2 |
 | `POST /api/v1/auth/password` | Change password; logs out other devices | users, sessions | 2 |
-| `POST /api/v1/uploads` · `HEAD`/`PATCH /api/v1/uploads/{id}` | Resumable uploads (tus) for big videos on weak signal | uploads, Storage | 2 |
-| `GET /api/v1/trash` · `POST /api/v1/trash/restore` · `DELETE /api/v1/trash` | Trash: list, restore, empty | trash, Storage | 2 |
+| `GET /api/v1/trash` · `DELETE /api/v1/trash` | Trash: list, empty now | trash, Storage | 2 |
 | `GET /api/v1/system/status` | CPU, RAM, disk, battery, uptime, Tailscale status | OS | 2 |
 | `GET /metrics` (port 9090 only) | Prometheus metrics: latency, errors, bytes | — | 2 |
 | `GET /api/v1/media/info?path=` | A video's audio tracks (ffprobe) and whether they can be switched | ffprobe, memory cache | 3 ✅ (early) |
@@ -237,7 +259,7 @@ Conventions:
 | Screen | Calls |
 |---|---|
 | Login | `POST /auth/login`, `GET /me` |
-| Files | `GET /files`, `GET /files/content`, `PUT /files/content`, `POST /files/folder`, `POST /files/move`, `DELETE /files` (+ P2 `/uploads`, P3 `/files/thumbnail`, `/search`, `/files/zip`, `WS /events`) |
+| Files | `GET /files`, `GET /files/content`, `POST`/`PUT`/`DELETE /uploads/{id}`, `POST /files/folder`, `POST /files/move`, `DELETE /files`, `POST /trash/restore` (Undo) (+ P3 `/files/thumbnail`, `/search`, `/files/zip`, `WS /events`) |
 | Trash (P2) | `GET /trash`, `POST /trash/restore`, `DELETE /trash` |
 | Status (P2) | `GET /system/status` (+ P3 `WS /events` for live numbers) |
 | Settings (P2) | `GET /sessions`, `DELETE /sessions/{id}`, `POST /auth/password`, `POST /auth/logout` |
@@ -314,7 +336,7 @@ my phone.
 | 2 (built) | Config file, `ashcloud init`, SQLite + migrations, `user create`, `GET /readyz` | `/readyz` reports DB + storage OK. |
 | 3 (built) | Login / logout / `me`, sessions, full middleware chain, login rate limit (admins exempt), login test page, `user reset-password` | Can log in from the phone; wrong passwords get rate-limited; cookie is HttpOnly/Secure/Strict. |
 | 4 (built) | List folder, download with `Range` | Browse folders, open a photo, scrub through a video on the phone. |
-| 5 | Upload, new folder, move/rename, delete | Upload a photo from the camera roll; rename it; delete it. |
+| 5 (built) | Upload (resumable), new folder, move/rename, delete to trash + Undo | Upload a photo from the camera roll; rename it; delete it. |
 | 6 | Web UI: login screen, file browser, upload with progress bar, installable to home screen | Everything above works by tapping, no typing URLs. |
 | 7 | Windows service + CI (lint, tests, build `ashcloud.exe`) | Reboot the laptop → it comes back by itself; CI is green. |
 
@@ -323,7 +345,9 @@ browse, download and delete; a laptop reboot needs no action from me; all tests
 pass.
 
 ### Phase 2 — Always on, safe to rely on
-Trash (undo deletes) · resumable uploads (tus) · see/revoke logged-in devices ·
+**Built early (step 5):** resumable uploads (own protocol, simpler than tus:
+one request per file, resume by asking for the offset) and trash with Undo.
+Still to do: a Trash screen (list, restore, empty) · see/revoke logged-in devices ·
 change password · Status screen (CPU, RAM, disk, battery, Tailscale) · metrics
 on `:9090` · log rotation · nightly backups (§13) · polished home-screen app.
 
@@ -358,6 +382,7 @@ public access: Tailscale Funnel or Cloudflare Tunnel) · more users (§15).
 | Round trips | 1 per screen | Each screen's endpoint returns everything that screen needs. |
 | Network path | Direct, not relayed | `tailscale ping <phone>` should show a direct connection, not `DERP`. If relayed: enable UPnP on the router or allow UDP 41641. |
 | Big files | Never held in memory | Uploads and downloads stream; `Range` for video seeking; thumbnails instead of full photos in lists (P3). |
+| Uploads | Limited only by the network | One request per file, 3 files at once, body streamed straight to disk in 1 MiB writes with background flushes every 32 MiB (measured: 1 GB in ~0.8 s locally; 100 × 3 MB photos in 1.4 s). Resume sends only the missing bytes. |
 | Measured, not guessed | Always visible | `Server-Timing` header on responses + Prometheus latency histograms per route. |
 
 **Hard limit:** downloads to the phone can't be faster than the home

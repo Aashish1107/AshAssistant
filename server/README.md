@@ -3,9 +3,10 @@
 The Go server behind Ash Cloud. See [`docs/PLAN.md`](../docs/PLAN.md) for the
 full plan.
 
-**Current stage: Phase 1, step 4.** You can log in from your phone, browse
-the folders in your files folder, open photos and documents, and play videos.
-You can drag a video's slider to any point without downloading the rest.
+**Current stage: Phase 1, step 5.** From your phone you can log in, browse
+your files, open photos and documents, and play videos (drag the slider to
+any point without downloading the rest). You can also **upload** files, fast
+and resumable, make folders, and rename, move and delete (with Undo).
 
 The page at `/` is a simple **test page**. The real app replaces it in step 6.
 
@@ -34,9 +35,9 @@ instead.)
 ```
 
 The first start after updating prints `database schema updated` with the new
-versions (`[3]`, or `[2 3]` if you skipped step 3). Those are added
-automatically. Your account, password, settings and sessions are kept, and
-your admin account's ID stays `1`.
+versions (`[4]` if you're coming from step 4). Those are added automatically.
+Your account, password, settings, sessions and files are kept, and your admin
+account's ID stays `1`.
 
 ### 2b. Install ffmpeg (once, for switching audio tracks)
 
@@ -49,28 +50,38 @@ server from there. The server window should say
 `ffmpeg found - audio track switching is on`. Without ffmpeg everything else
 still works; the player's Audio menu just explains that switching is off.
 
-### 3. Put some files in your folder
-
-Your files live in **`C:\AshCloud\storage\users\1\`**. Copy anything into it
-with File Explorer, including folders. For the video test, copy a video from
-your phone, for example an iPhone `.MOV` or an Android `.mp4`, ideally a
-minute or longer.
-
-### 4. Browse and play on the phone
+### 3. Upload from the phone
 
 With **Wi-Fi off** and the **Tailscale app on**, open
 `https://<laptop-name>.<tailnet-name>.ts.net/` and log in if asked. Then:
 
+1. Tap **New folder**, call it `Camera`, and open it.
+2. Tap **Upload** and pick a few photos and a video from your gallery. They
+   go up three at a time, each with its own progress bar, and the total
+   speed and time left at the top.
+3. Tap **⋯** next to a photo → **Rename**. Then **⋯** → **Delete**, and tap
+   **Undo** in the bar that appears at the bottom.
+
+**Step 5 is done** when the photo arrives, is renamed and comes back after
+Undo. On the laptop the files are in **`C:\AshCloud\storage\users\1\Camera\`**,
+with the dates they were taken. See [Uploading and changing files](#uploading-and-changing-files)
+for what happens when the connection drops.
+
+You can still copy files into `C:\AshCloud\storage\users\1\` with File
+Explorer; they show up on the phone right away.
+
+### 4. Browse and play on the phone
+
 1. Your folders and files are listed, folders first. Tap a folder to open
    it, and use the path at the top (Home / …) or the phone's Back button to go up.
 2. Tap a **photo** or **PDF** to view it, and a **text file** to read it.
-   Tap **⬇** next to any file to download it.
+   To download a file, tap **⋯** next to it → **Download**.
 3. Tap your **video**. It opens in Ash Cloud's player (see
    [The video player](#the-video-player)). Press ▶, then **drag the slider**
    to near the end, then back to the middle.
 
-**Step 4 is done** when the video starts within a few seconds and resumes
-within about 1–2 seconds after each drag. In the server window on the laptop
+The video should start within a few seconds and resume within about 1–2
+seconds after each drag. In the server window on the laptop
 you'll see several lines like this one:
 
 ```
@@ -136,6 +147,49 @@ drag. Your current audio keeps playing while the new track is prepared.
 
 ---
 
+## Uploading and changing files
+
+**Uploads are as fast as your connection.** Each file goes up in one
+request and streams straight onto the laptop's disk; the server never holds
+it in memory and adds almost nothing. Measured on a test machine: a 1 GB file
+in under a second, and 100 photos of 3 MB in 1.4 s (14 ms each) when the
+network isn't the limit. Over the internet, your home connection and the
+phone's signal are the limit. Three files go up at once, which keeps the
+connection busy even with many small photos.
+
+**They survive a bad connection.**
+
+| What happens | What you see |
+|---|---|
+| The connection drops (walking out of Wi-Fi, a tunnel, switching to mobile data) | `Waiting for the network…` or `Connection lost - trying again in 4 s`. When the network is back it asks the laptop how much arrived and **sends only the rest**. Nothing is sent twice. |
+| The connection hangs without dropping | After 30 s without progress, the phone starts a new connection and the laptop drops the old one at once. |
+| You close the tab, the phone kills the browser, or the laptop restarts | Pick the same file into the same folder again: it **continues where it stopped**. Unfinished uploads are kept for 7 days. |
+| The power goes off on the laptop mid-upload | The upload continues from the last point safely on disk (at most 32 MB back). |
+| You picked the wrong file | Tap **✕** next to it. What it sent is deleted. |
+
+Keep the page open while uploading. The screen stays on by itself during
+uploads, because Android pauses the page soon after the screen turns off.
+
+**Nothing is ever overwritten.** Uploading `IMG_1.jpg` where one already
+exists saves `IMG_1 (1).jpg`. Renaming or moving onto a name that's taken is
+refused. Uploaded photos and videos keep the date they were taken.
+
+**Before a big upload starts,** the laptop checks the folder exists and the
+file fits, keeping 512 MB free so Windows keeps working. If not, you're told
+at once rather than after sending everything.
+
+**Delete goes to the trash.** It's instant, even for a big folder, and the
+**Undo** button brings it back. Deleted items stay in the trash for 30 days,
+then they're removed for good. (A page to browse the trash comes in Phase 2.)
+
+**Where things are on the laptop:** each account's folder has two folders
+of the server's own, `.ashcloud-uploads` (unfinished uploads) and
+`.ashcloud-trash` (deleted items, one subfolder per delete). File Explorer
+shows them; the phone never does. Leave them alone: the server cleans both up
+by itself.
+
+---
+
 ## How logging in works
 
 | | |
@@ -170,8 +224,12 @@ drag. Your current audio keeps playing while the new track is prepared.
   shortcuts pointing outside the folder.
 - **Error messages.** Errors never show internal details. Each response
   has an `X-Request-Id`, and the server log has the full story under that ID.
-- **Audit log.** Logins, failed logins, blocked attempts, logouts and password
-  resets are recorded in the `audit_log` table, with time and device address.
+- **Uploads can't escape either.** An upload's name goes through the same
+  rules, its partial file lives inside your own folder, and the upload's ID
+  can only contain letters, digits, `-` and `_`.
+- **Audit log.** Logins, failed logins, blocked attempts, logouts, password
+  resets, uploads, new folders, moves, deletes and restores are recorded in
+  the `audit_log` table, with time and device address.
 
 ---
 
@@ -201,6 +259,13 @@ ashcloud help                           show help
 | `GET /api/v1/me` | **yes** | `200` `{"user": {...}, "expires_at": ...}`, or `401`. |
 | `GET /api/v1/files?path=/Photos` | **yes** | `200` `{"path": "/Photos", "entries": [{"name", "path", "type": "folder"\|"file", "size", "modified", "content_type"}]}`. Folders first, then files, sorted by name. |
 | `GET /api/v1/files/content?path=/Videos/trip.mov` | **yes** | The file, as a download. Add `&inline=1` to open it in the browser instead: images, video, audio and PDFs display, text files show as plain text, and anything else still downloads. Supports `Range` (`206`), `ETag`/`If-None-Match` (`304`), `If-Range` and `HEAD`. No time limit. |
+| `POST /api/v1/uploads/{id}?path=/Photos/IMG_1.jpg&size=123&modified=<ms>` | **yes** | Start an upload, or ask where an unfinished one stopped: `200` `{"id", "path", "size", "offset"}`; with `"file": {...}` too if it already finished. Checks the folder exists (`404`/`400`) and the file fits (`507 disk_full`). `{id}` is chosen by the browser: 16–64 letters, digits, `-` or `_`. |
+| `PUT /api/v1/uploads/{id}?path=…&size=…&modified=…` + header `Upload-Offset: <n>` | **yes** | The file's bytes from byte `n` on, as the raw request body. `201` `{..., "file": {...}}` once complete (the name may become `name (1).ext`); `200` with the new `offset` if the body ended early; `409 wrong_offset` with the right `Upload-Offset` header if `n` isn't where the upload stopped; `409 taken_over` if a newer request continued it. No time limit; 60 s without data counts as a dropped connection. |
+| `DELETE /api/v1/uploads/{id}` | **yes** | `204`; stops the upload and deletes what it received. |
+| `POST /api/v1/files/folder` | **yes** | `{"path": "/Photos/2026"}` → `201` the new folder; `409 exists`. |
+| `POST /api/v1/files/move` | **yes** | `{"from", "to"}` → `200` the moved file or folder. Renames too. `409 exists` (never overwrites), `409 in_use` (open in a program on the laptop), `400 into_itself`. |
+| `DELETE /api/v1/files?path=/Photos/old.jpg` | **yes** | Moves it to the trash: `200` `{"trash_id"}`. |
+| `POST /api/v1/trash/restore` | **yes** | `{"id": "<trash_id>"}` → `200` the restored file or folder, back where it was (as `name (1)` if that name was taken since). `404 not_in_trash`. |
 | `GET /api/v1/media/info?path=/Videos/movie.mp4` | **yes** | `200` `{"duration_seconds", "audio_tracks": [{"track", "codec", "channels", "language", "title", "default", "native"}], "can_switch_audio", "reason"}`. `native` is the track the browser plays by itself (the first). `422` if the file isn't a video. |
 | `POST /api/v1/media/audio` | **yes** | `{"path", "track"}` → `{"state": "preparing", "progress": 0.4}`, then `{"state": "ready", "url": ...}` (or `"failed"`, with `error`). Starts extracting the track the first time; call again to follow progress. `409` without ffmpeg. |
 | `GET /api/v1/media/audio?path=…&track=1` | **yes** | The prepared track, with `Range` support like files. `404 not_ready` until prepared. No time limit. |
@@ -242,6 +307,13 @@ shown. A misspelled one stops the server with a message naming it.
 | Audio and picture drift apart | They're re-aligned automatically within about a second. If not, pause and play again. |
 | A video won't play, or downloads instead | The browser can't play that format (see the table above). `.MKV` and `.AVI` never play in a browser. |
 | A video keeps pausing to buffer | Your home internet's upload speed is lower than the video's bitrate. On the laptop, run `tailscale ping <phone-name>`. If it says `via DERP`, the connection is relayed: enable UPnP on your router. |
+| Upload says "The laptop's drive is too full for that" | Free up space on the laptop's drive. Uploads leave 512 MB free on purpose. |
+| Upload says "Waiting for the network…" for a long time | The phone has no connection to the laptop: check the Tailscale app is on, and that the server is running. It continues by itself once it can. |
+| Uploads stop when the phone's screen turns off | Android pauses pages in the background. Keep Ash Cloud open and the screen on (it stays on by itself during uploads unless battery saver blocks it). If one stopped, pick the same file again: it continues. |
+| Rename or delete says the file "is open in another program" | Windows doesn't let a file that's open be renamed or deleted. Close it on the laptop (or stop playing it) and try again. |
+| "Something with that name is already there" | Pick another name. Nothing is ever overwritten. |
+| Deleted something by mistake and Undo is gone | It's in `C:\AshCloud\storage\users\1\.ashcloud-trash\` for 30 days, in a folder named with a random ID (sort by date). Move it back from there with File Explorer. |
+| An upload fails with "That name or path isn't allowed" | The file's name has a character Windows can't use, such as `:` or `?`. Rename it on the phone and upload it again. |
 | A file on the laptop doesn't show up | Windows' own `desktop.ini` and `Thumbs.db` are hidden on purpose. So are names Windows itself can't use, and shortcuts that point outside your folder. |
 | "There's nothing at that path" | The file or folder was moved or renamed on the laptop. Go back to Home and browse again. |
 | Page says "Couldn't reach the server" | The server isn't running, or the phone's Tailscale app is off. |
@@ -288,9 +360,12 @@ Files on the laptop:
 ```
 C:\AshCloud\
 ├── ashcloud.toml        settings
-├── ashcloud.db          database: users, sessions, audit log (+ -wal / -shm files while running)
+├── ashcloud.db          database: users, sessions, audit log, uploads, trash (+ -wal / -shm files while running)
+├── cache\audio\         audio tracks extracted for the player (removed after 30 days unused)
 └── storage\users\
     ├── 1\               your files (admin)
+    │   ├── .ashcloud-uploads\   unfinished uploads (the phone never shows it)
+    │   └── .ashcloud-trash\     deleted items, kept 30 days (the phone never shows it)
     └── <nano id>\       each other account's files
 ```
 
@@ -304,7 +379,11 @@ go test ./...
 ```
 
 The media tests use the real ffmpeg when it's installed, and are skipped
-otherwise.
+otherwise. To measure how fast uploads go to disk, without the network:
+
+```powershell
+go test -run XXX -bench Write ./internal/drive
+```
 
 The database code in `internal/db` (`db.go`, `models.go`, `*.sql.go`) is
 generated by [sqlc](https://sqlc.dev) from `internal/db/queries/*.sql` and
@@ -326,10 +405,13 @@ internal/config/      ashcloud.toml: defaults, loading, validation, writing
 internal/db/          SQLite: opening, migrations/, queries/, sqlc output
 internal/auth/        passwords (argon2id), users, login, sessions, lockout, audit log
 internal/ids/         Nano IDs for new users
-internal/files/       browsing and reading files: path rules, content types, os.Root
+internal/files/       files on disk, all through os.Root: path rules, content types, listing,
+                      reading, and the low-level writes (folders, moves, trash, part files)
+internal/drive/       changing files: resumable uploads, folders, moves, delete/restore,
+                      trash and upload cleanup, audit log
 internal/media/       ffprobe/ffmpeg: list a video's audio tracks, extract one, cache and clean up
 internal/storage/     files folder: per-user folders, writability check
 internal/httpapi/     routes, middleware chain, JSON errors, server start/stop
-internal/webui/       the browser page, built into the binary (test page until step 6),
-                      including the video player (static/assets/player.js)
+internal/webui/       the browser page, built into the binary (test page until step 6):
+                      app.js (files, menus), uploads.js (upload queue), player.js (video player)
 ```

@@ -118,8 +118,10 @@ func (s *Service) Open(ctx context.Context, userID string, up Upload) (Result, e
 }
 
 // Write receives an upload's bytes from body, starting at byte up.Offset,
-// and finishes the upload when the last one arrives. A body that ends early
-// is fine: what arrived is kept, and another request can continue.
+// which must be where the upload stopped (otherwise it fails with an
+// OffsetError saying where that is). It finishes the upload when the last
+// byte arrives. A body that ends early is fine: what arrived is kept, and
+// another request can continue.
 //
 // stop must make body's reads fail immediately. It's called when a newer
 // request takes over (the phone switched networks, and the old connection
@@ -139,7 +141,8 @@ func (s *Service) Write(ctx context.Context, userID string, client auth.Client, 
 	defer s.release(key, me)
 
 	offset := up.Offset
-	current, row, err := s.lookup(ctx, userID, up)
+	isNew := false
+	current, _, err := s.lookup(ctx, userID, up)
 	if errors.Is(err, ErrUploadNotFound) {
 		if entry, ok := s.recall(key); ok {
 			return doneResult(current, entry), nil
@@ -147,13 +150,14 @@ func (s *Service) Write(ctx context.Context, userID string, client auth.Client, 
 		if offset != 0 {
 			return Result{}, ErrUploadNotFound
 		}
-		current, row, err = s.create(ctx, userID, up)
+		current, _, err = s.create(ctx, userID, up)
+		isNew = true
 	}
 	if err != nil {
 		return Result{}, err
 	}
 
-	file, size, err := s.files.OpenUpload(userID, up.ID, false)
+	file, size, err := s.files.OpenUpload(userID, up.ID, isNew)
 	if errors.Is(err, files.ErrNotFound) {
 		// Nothing has arrived yet, or it was lost: start from the beginning.
 		if offset != 0 {
@@ -166,22 +170,13 @@ func (s *Service) Write(ctx context.Context, userID string, client auth.Client, 
 		return Result{}, err
 	}
 	current.Offset = size
-	if offset > size {
+	if offset != size {
+		// Bytes the server already has are never sent twice, and there's
+		// never a gap. (Browsers resend a whole request by themselves when
+		// a connection drops at the wrong moment; this turns that into
+		// "continue from byte n".)
 		file.Close()
 		return Result{Upload: current}, &OffsetError{Offset: size}
-	}
-	if offset < size {
-		// The browser is resending bytes the server already has (it can't
-		// know exactly how far the last request got). Cut them off; what
-		// follows is the same file, so this is always safe.
-		if err := file.Truncate(offset); err != nil {
-			file.Close()
-			return Result{Upload: current}, files.TranslateError(err)
-		}
-		current.Offset = offset
-		if row.Synced > offset {
-			s.saveProgress(ctx, userID, up.ID, offset)
-		}
 	}
 	if err := s.checkSpace(current.Size - current.Offset); err != nil {
 		file.Close()
@@ -507,11 +502,18 @@ func (s *Service) remember(key uploadKey, entry files.Entry) {
 	s.recent[key] = finished{entry: entry, at: now}
 }
 
+// recall returns the file an upload finished as in the last few minutes, if
+// it's still there. (If it was deleted or renamed since, sending it again
+// must upload it again.)
 func (s *Service) recall(key uploadKey) (files.Entry, bool) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	f, ok := s.recent[key]
+	s.mu.Unlock()
 	if !ok || s.now().Sub(f.at) > rememberFinished {
+		return files.Entry{}, false
+	}
+	now, err := s.files.Stat(key.userID, f.entry.Path)
+	if err != nil || now.IsFolder || now.Size != f.entry.Size || !now.Modified.Equal(f.entry.Modified) {
 		return files.Entry{}, false
 	}
 	return f.entry, true

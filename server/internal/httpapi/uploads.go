@@ -147,7 +147,7 @@ func (a *api) uploadError(w http.ResponseWriter, r *http.Request, result drive.R
 	case errors.Is(err, drive.ErrInterrupted):
 		// Usually nobody is listening any more; the browser will continue.
 		a.logger.Info("upload interrupted", "request_id", infoFrom(r.Context()).id, "upload_id", result.Upload.ID,
-			"received", result.Upload.Offset, "size", result.Upload.Size, "reason", errors.Unwrap(err))
+			"received", result.Upload.Offset, "size", result.Upload.Size, "error", err)
 		w.Header().Set(offsetHeader, strconv.FormatInt(result.Upload.Offset, 10))
 		writeError(w, http.StatusBadRequest, "interrupted", "The upload was interrupted - continue from byte "+strconv.FormatInt(result.Upload.Offset, 10))
 	default:

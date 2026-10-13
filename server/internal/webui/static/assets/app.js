@@ -133,18 +133,248 @@ async function loadFolder(path) {
   const rows = data.entries.map((entry) => {
     if (entry.type === "folder") {
       return element("li", {},
-        element("a", { href: folderLink(entry.path), className: "name" }, icon(entry) + " " + entry.name));
+        element("a", { href: folderLink(entry.path), className: "name" }, icon(entry) + " " + entry.name),
+        moreButton(entry));
     }
     const isVideo = (entry.content_type || "").startsWith("video/");
     const open = isVideo ? playerLink(entry.path) : contentLink(entry.path, true);
     return element("li", {},
       element("a", { href: open, className: "name" }, icon(entry) + " " + entry.name),
       element("span", { className: "meta" }, formatSize(entry.size)),
-      element("a", { href: contentLink(entry.path, false), className: "download", title: "Download", ariaLabel: "Download " + entry.name }, "⬇"));
+      moreButton(entry));
   });
   $("entries").replaceChildren(...rows);
   $("empty").hidden = rows.length > 0;
-  $("empty").textContent = `This folder is empty. On the laptop, put files in C:\\AshCloud\\storage\\users\\${session.user.id}\\`;
+}
+
+// refreshFolder reloads the folder on screen, if one is.
+function refreshFolder() {
+  const where = currentRoute();
+  if (session && where.view === "folder") loadFolder(where.path);
+}
+
+function currentFolder() {
+  const where = currentRoute();
+  return where.view === "folder" ? where.path : "/";
+}
+
+function parentOf(path) {
+  const parent = path.slice(0, path.lastIndexOf("/"));
+  return parent || "/";
+}
+
+function joinPath(folder, name) {
+  return (folder === "/" ? "" : folder) + "/" + name;
+}
+
+function baseName(path) {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+// ---- changing files ----------------------------------------------------------
+
+let menuEntry = null; // the file or folder whose ⋯ menu is open
+let menuRow = null; // ...and its row in the list
+
+function moreButton(entry) {
+  const button = element("button", { type: "button", className: "more", ariaLabel: "More for " + entry.name, title: "More" }, "⋯");
+  button.addEventListener("click", () => {
+    menuRow = button.closest("li");
+    openMenu(entry);
+  });
+  return button;
+}
+
+// Dialogs close when you tap outside them.
+for (const dialog of document.querySelectorAll("dialog")) {
+  dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+}
+
+function openMenu(entry) {
+  menuEntry = entry;
+  $("item-menu-title").textContent = icon(entry) + " " + entry.name;
+  $("item-download").hidden = entry.type === "folder";
+  $("item-download").href = contentLink(entry.path, false);
+  $("item-menu").showModal();
+}
+
+$("item-cancel").addEventListener("click", () => $("item-menu").close());
+$("item-download").addEventListener("click", () => $("item-menu").close());
+
+// ask shows a dialog asking for a name. submit(value) does the work and
+// returns an error message to show, or nothing when it's done.
+function ask({ title, value = "", okLabel = "OK", select, submit }) {
+  const dialog = $("ask");
+  $("ask-title").textContent = title;
+  $("ask-ok").textContent = okLabel;
+  $("ask-error").textContent = "";
+  const input = $("ask-input");
+  input.value = value;
+  $("ask-form").onsubmit = async (event) => {
+    event.preventDefault();
+    const name = input.value.trim();
+    if (!name) return;
+    if (name.includes("/") || name.includes("\\")) {
+      $("ask-error").textContent = "A name can't contain / or \\";
+      return;
+    }
+    $("ask-ok").disabled = true;
+    try {
+      const problem = await submit(name);
+      if (problem) $("ask-error").textContent = problem;
+      else dialog.close();
+    } catch (error) {
+      $("ask-error").textContent = "Couldn't reach the server - try again.";
+    } finally {
+      $("ask-ok").disabled = false;
+    }
+  };
+  dialog.showModal();
+  input.focus();
+  if (select) input.setSelectionRange(...select);
+  else input.select();
+}
+
+$("ask-cancel").addEventListener("click", () => $("ask").close());
+
+function problemFrom(response, data, what) {
+  if (response.status === 401) { show(null); return "Log in again first."; }
+  return data?.error?.message ?? `Couldn't ${what} (HTTP ${response.status})`;
+}
+
+$("new-folder").addEventListener("click", () => {
+  const folder = currentFolder();
+  ask({
+    title: "New folder",
+    okLabel: "Create",
+    submit: async (name) => {
+      const { response, data } = await api("POST", "/api/v1/files/folder", { path: joinPath(folder, name) });
+      if (!response.ok) return problemFrom(response, data, "create the folder");
+      refreshFolder();
+    },
+  });
+});
+
+$("item-rename").addEventListener("click", () => {
+  const entry = menuEntry;
+  $("item-menu").close();
+  // Select the name without its extension, as a file manager would.
+  const dot = entry.type === "file" ? entry.name.lastIndexOf(".") : -1;
+  ask({
+    title: "Rename",
+    value: entry.name,
+    okLabel: "Rename",
+    select: dot > 0 ? [0, dot] : null,
+    submit: async (name) => {
+      if (name === entry.name) return;
+      const { response, data } = await api("POST", "/api/v1/files/move", { from: entry.path, to: joinPath(parentOf(entry.path), name) });
+      if (!response.ok) return problemFrom(response, data, "rename it");
+      refreshFolder();
+    },
+  });
+});
+
+// Moving: browse to the folder to move into, then tap "Move here".
+let moveFolder = "/";
+
+$("item-move").addEventListener("click", () => {
+  const entry = menuEntry;
+  $("item-menu").close();
+  $("move-title").textContent = "Move " + entry.name + " to…";
+  $("move-error").textContent = "";
+  $("move-here").onclick = async () => {
+    $("move-here").disabled = true;
+    try {
+      const { response, data } = await api("POST", "/api/v1/files/move", { from: entry.path, to: joinPath(moveFolder, entry.name) });
+      if (!response.ok) {
+        $("move-error").textContent = problemFrom(response, data, "move it");
+        return;
+      }
+      $("move").close();
+      refreshFolder();
+      toast(`Moved to ${moveFolder === "/" ? "Home" : baseName(moveFolder)}`);
+    } catch {
+      $("move-error").textContent = "Couldn't reach the server - try again.";
+    } finally {
+      $("move-here").disabled = false;
+    }
+  };
+  browseMoveTarget(parentOf(entry.path), entry);
+  $("move").showModal();
+});
+
+$("move-cancel").addEventListener("click", () => $("move").close());
+
+async function browseMoveTarget(folder, moving) {
+  moveFolder = folder;
+  $("move-here").disabled = folder === parentOf(moving.path);
+  const crumbs = $("move-crumbs");
+  const go = (path, label) => {
+    const button = element("button", { type: "button", className: "link" }, label);
+    button.addEventListener("click", () => browseMoveTarget(path, moving));
+    return button;
+  };
+  crumbs.replaceChildren(go("/", "Home"));
+  let sofar = "";
+  for (const part of folder.split("/").filter(Boolean)) {
+    sofar += "/" + part;
+    crumbs.append(" / ", go(sofar, part));
+  }
+  const list = $("move-folders");
+  list.replaceChildren(element("li", { className: "note" }, "Loading…"));
+  const { response, data } = await api("GET", "/api/v1/files?path=" + encodeURIComponent(folder));
+  if (moveFolder !== folder) return; // moved on meanwhile
+  if (!response.ok) {
+    list.replaceChildren(element("li", { className: "error" }, problemFrom(response, data, "open the folder")));
+    return;
+  }
+  // A folder can't go inside itself, so it isn't offered.
+  const folders = data.entries.filter((e) => e.type === "folder" && e.path !== moving.path);
+  list.replaceChildren(...folders.map((e) => element("li", {}, go(e.path, "📁 " + e.name))));
+  if (!folders.length) list.append(element("li", { className: "note" }, "No folders here."));
+}
+
+// Deleting is instant and goes to the trash, so there's no "are you sure?":
+// an Undo button appears instead.
+$("item-delete").addEventListener("click", async () => {
+  const entry = menuEntry;
+  $("item-menu").close();
+  showError("");
+  menuRow.hidden = true; // gone at once; put back if the server says no
+  try {
+    const { response, data } = await api("DELETE", "/api/v1/files?path=" + encodeURIComponent(entry.path));
+    if (!response.ok) {
+      showError(problemFrom(response, data, "delete it"));
+      refreshFolder();
+      return;
+    }
+    refreshFolder();
+    toast(`Deleted ${entry.name}`, "Undo", async () => {
+      const { response, data: restored } = await api("POST", "/api/v1/trash/restore", { id: data.trash_id });
+      if (!response.ok) showError(problemFrom(response, restored, "undo"));
+      refreshFolder();
+    });
+  } catch {
+    showError("Couldn't reach the server - try again.");
+    refreshFolder();
+  }
+});
+
+let toastTimer = 0;
+
+// toast shows a short message at the bottom, optionally with a button.
+function toast(text, actionLabel, action) {
+  clearTimeout(toastTimer);
+  $("toast-text").textContent = text;
+  const button = $("toast-action");
+  button.hidden = !actionLabel;
+  button.textContent = actionLabel || "";
+  button.onclick = () => {
+    $("toast").hidden = true;
+    action();
+  };
+  $("toast").hidden = false;
+  toastTimer = setTimeout(() => { $("toast").hidden = true; }, actionLabel ? 8000 : 3000);
 }
 
 // ---- login / logout --------------------------------------------------------
