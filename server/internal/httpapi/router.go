@@ -53,6 +53,9 @@ func NewRouter(deps Deps) http.Handler {
 	web := webui.Handler()
 	mux.Handle("GET /{$}", web)
 	mux.Handle("GET /assets/", web)
+	mux.Handle("GET /icons/", web)
+	mux.Handle("GET /sw.js", web)
+	mux.Handle("GET /manifest.webmanifest", web)
 
 	mux.Handle("POST /api/v1/auth/login", withTimeout(http.HandlerFunc(a.login)))
 	mux.Handle("POST /api/v1/auth/logout", withTimeout(http.HandlerFunc(a.logout)))

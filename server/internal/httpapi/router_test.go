@@ -62,17 +62,26 @@ func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 	}
 }
 
-func TestTestPageIsServed(t *testing.T) {
+func TestTheAppIsServed(t *testing.T) {
 	router, _ := newTestRouter(t, auth.Options{})
 	rec := send(t, router, request{method: "GET", path: "/"})
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `<script src="/assets/app.js" defer>`) {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `<div id="app">`) {
 		t.Fatalf("GET / = %d:\n%s", rec.Code, rec.Body)
 	}
-	for path, wantType := range map[string]string{"/assets/app.js": "text/javascript", "/assets/app.css": "text/css"} {
+	// The app's own files are reachable through the router (and so through
+	// the security headers): the service worker, the manifest, the icons.
+	for path, wantType := range map[string]string{
+		"/sw.js":                "text/javascript",
+		"/manifest.webmanifest": "application/manifest+json",
+		"/icons/icon-512.png":   "image/png",
+	} {
 		rec := send(t, router, request{method: "GET", path: path})
 		if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), wantType) {
 			t.Errorf("GET %s = %d %q, want 200 %s", path, rec.Code, rec.Header().Get("Content-Type"), wantType)
 		}
+	}
+	if rec := send(t, router, request{method: "GET", path: "/assets/app.js"}); rec.Code != http.StatusNotFound {
+		t.Errorf("the old test page's script is still served: %d", rec.Code)
 	}
 }
 

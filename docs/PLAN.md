@@ -4,13 +4,14 @@ A private cloud that runs on my Windows laptop. I use it **only through a web
 browser**, from my phone, from anywhere. Built for one person, but designed so
 it could grow to more users without a rewrite.
 
-Status: **Phase 1, step 5 built** — upload (fast and resumable), new folder,
-rename/move, delete to a trash with Undo. Resumable uploads and trash/restore
-were pulled forward from Phase 2. Earlier steps: browse folders, open or stream
-files (video scrubbing via Range requests), Nano ID user IDs, and, pulled
-forward from Phase 3, a video player with −10 s / +10 s and audio track
-switching. Step 5 is done once a photo from the phone uploads, renames and
-deletes ([`server/README.md`](../server/README.md)). Next: step 6.
+Status: **Phase 1, step 6 built** — the phone app (Svelte + TypeScript +
+Vite, in `web/`): installable to the home screen, opens offline-first in
+~0.3 s, file browser, photo viewer with swipe, video player, uploads with
+progress, ⋯ menu (download, rename, move, delete + Undo), and Android's
+Share → Ash Cloud. Built so far: steps 1–6, plus resumable uploads and
+trash/restore (from Phase 2) and the video player with audio-track
+switching (from Phase 3). Step 6 is done once it all works by tapping on the
+phone ([`server/README.md`](../server/README.md)). Next: step 7.
 
 ---
 
@@ -126,9 +127,10 @@ AshAssistant/
 │       ├── storage/    # Storage interface + localfs implementation (os.Root)
 │       ├── db/         # migrations/*.sql, queries/*.sql, sqlc output
 │       ├── system/     # CPU / RAM / disk / battery (Phase 2)
-│       └── webui/      # go:embed of the built frontend (web/ builds into here)
+│       └── webui/      # go:embed of the built frontend (web/ builds into dist/, committed)
 ├── web/                                # Svelte + TypeScript + Vite
-│   ├── src/            # screens: Login, Files, Status, Terminal
+│   ├── src/            # screens: Login, Files, Viewer, Player, Uploads, Share (later: Status, Terminal)
+│   ├── e2e/            # Playwright end-to-end tests
 │   └── vite.config.ts
 └── .github/workflows/ci.yml
 ```
@@ -281,7 +283,11 @@ text; everything else downloads.
 
 1. **Install tools** (PowerShell):
    ```powershell
-   winget install GoLang.Go OpenJS.NodeJS.LTS Git.Git tailscale.tailscale Gyan.FFmpeg
+   winget install GoLang.Go Git.Git tailscale.tailscale Gyan.FFmpeg
+   ```
+   (Node.js, `OpenJS.NodeJS.LTS`, is only needed to change the app: the built
+   app is committed, so building the server needs only Go.)
+   ```powershell
    ```
 2. **Tailscale on the laptop**: sign in. In the tray icon → Preferences, turn on **Run unattended** (keeps it connected when nobody is logged in).
 3. **Tailscale on the phone**: install the Tailscale app, sign in with the **same account**, leave it on.
@@ -301,8 +307,7 @@ text; everything else downloads.
 ## 9. Build and first run (once Phase 1 code exists)
 
 ```powershell
-cd web;    npm ci; npm run build                  # builds the UI into server/internal/webui
-cd ..\server
+cd server                                         # (the app in web/ is already built into it)
 go build -o ashcloud.exe .\cmd\ashcloud
 .\ashcloud.exe init                               # creates C:\AshCloud, config, database, tables
 .\ashcloud.exe user create --admin aashish        # asks for a password
@@ -337,7 +342,7 @@ my phone.
 | 3 (built) | Login / logout / `me`, sessions, full middleware chain, login rate limit (admins exempt), login test page, `user reset-password` | Can log in from the phone; wrong passwords get rate-limited; cookie is HttpOnly/Secure/Strict. |
 | 4 (built) | List folder, download with `Range` | Browse folders, open a photo, scrub through a video on the phone. |
 | 5 (built) | Upload (resumable), new folder, move/rename, delete to trash + Undo | Upload a photo from the camera roll; rename it; delete it. |
-| 6 | Web UI: login screen, file browser, upload with progress bar, installable to home screen | Everything above works by tapping, no typing URLs. |
+| 6 (built) | Web UI: login screen, file browser, photo viewer, video player, upload with progress bar, installable to home screen, Share → Ash Cloud | Everything above works by tapping, no typing URLs. |
 | 7 | Windows service + CI (lint, tests, build `ashcloud.exe`) | Reboot the laptop → it comes back by itself; CI is green. |
 
 **Phase 1 is done when:** with Wi-Fi off on the phone, I can log in, upload,
@@ -378,7 +383,7 @@ public access: Tailscale Funnel or Cloudflare Tunnel) · more users (§15).
 | Target | Goal | How |
 |---|---|---|
 | Server time per API call | p95 < 5 ms | Go, SQLite WAL with prepared statements, in-memory session cache. |
-| App opening on the phone | < 1 s on 4G, instant once installed | JS bundle < 100 KB; hashed asset names with `Cache-Control: immutable`; assets pre-compressed (brotli/gzip) at build time; home-screen app keeps the shell cached. |
+| App opening on the phone | < 1 s on 4G, instant once installed | JS bundle < 100 KB (built: 90 KB, 33 KB compressed); hashed asset names with `Cache-Control: immutable`; assets pre-compressed (brotli/gzip) at build time; the service worker keeps the app on the phone; who-am-I and the folder are fetched in parallel. Measured on simulated 4G (100 ms RTT): folder visible in ~0.5 s on a first visit, ~0.28 s installed. |
 | Round trips | 1 per screen | Each screen's endpoint returns everything that screen needs. |
 | Network path | Direct, not relayed | `tailscale ping <phone>` should show a direct connection, not `DERP`. If relayed: enable UPnP on the router or allow UDP 41641. |
 | Big files | Never held in memory | Uploads and downloads stream; `Range` for video seeking; thumbnails instead of full photos in lists (P3). |
@@ -423,7 +428,7 @@ Layers, outermost first:
 ## 14. Testing and CI
 
 - **Go**: unit tests per package; HTTP integration tests with `httptest` against a temp storage folder and temp SQLite; tests for every path-escape and bad-name case.
-- **Web**: `svelte-check` + `vitest`; Playwright end-to-end tests at iPhone screen size (login → upload → rename → delete).
+- **Web**: `svelte-check` + `vitest`; Playwright end-to-end tests at Android phone size against a real server (`web/e2e`): login → upload → rename → move → delete + Undo, cancelled upload, photo viewer, installability, offline start, Share target.
 - **CI** (GitHub Actions, `windows-latest`, since that's where it runs): `go vet`, `golangci-lint`, `go test ./...`, frontend checks, build `ashcloud.exe` as an artifact.
 
 ---

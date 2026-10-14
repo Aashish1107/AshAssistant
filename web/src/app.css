@@ -1,0 +1,256 @@
+/* Ash Cloud: shared look. Components add their own styles next to them. */
+
+:root {
+  --bg: #f6f6f8;
+  --fg: #18181d;
+  --muted: #63636f;
+  --card: #ffffff;
+  --raised: #ffffff;
+  --border: #e3e3ea;
+  --hover: rgba(20, 20, 40, 0.05);
+  --accent: #2f5bd3;
+  --accent-fg: #ffffff;
+  --accent-soft: #e6ecfb;
+  --error: #b42318;
+  --error-soft: #fdecea;
+  --success: #23864d;
+  --shadow: 0 10px 30px rgba(10, 10, 30, 0.18);
+  --radius: 14px;
+  --bar: 56px;
+
+  /* File type tiles: background, then icon colour. */
+  --folder-bg: #fdf1d6;   --folder-fg: #b7791f;
+  --image-bg: #e2f5e9;    --image-fg: #23864d;
+  --video-bg: #ece6fb;    --video-fg: #6741d9;
+  --audio-bg: #fbe4f0;    --audio-fg: #c2255c;
+  --pdf-bg: #fde4e1;      --pdf-fg: #c92a2a;
+  --text-bg: #e3edfb;     --text-fg: #1c64c4;
+  --archive-bg: #efe8e1;  --archive-fg: #85633f;
+  --file-bg: #ececf1;     --file-fg: #5c5c6b;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111115;
+    --fg: #ececf1;
+    --muted: #a0a0ad;
+    --card: #1a1a20;
+    --raised: #23232b;
+    --border: #2d2d36;
+    --hover: rgba(255, 255, 255, 0.06);
+    --accent: #7b9bff;
+    --accent-fg: #0d0d12;
+    --accent-soft: #1f2742;
+    --error: #ff8a80;
+    --error-soft: #3a1f1f;
+    --success: #5fd08a;
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+
+    --folder-bg: #3a2f17;   --folder-fg: #f5c46b;
+    --image-bg: #17331f;    --image-fg: #6ee09a;
+    --video-bg: #2a2147;    --video-fg: #b39dff;
+    --audio-bg: #3d1a2c;    --audio-fg: #ff8cc0;
+    --pdf-bg: #3d1c1c;      --pdf-fg: #ff8f8f;
+    --text-bg: #182a44;     --text-fg: #8ab8ff;
+    --archive-bg: #33291f;  --archive-fg: #d9b38c;
+    --file-bg: #2a2a33;     --file-fg: #b5b5c4;
+  }
+}
+
+* { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+a { color: var(--accent); }
+
+button, input { font: inherit; color: inherit; }
+
+button { cursor: pointer; }
+
+.icon { flex: none; display: block; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- buttons ---- */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.button.quiet {
+  background: transparent;
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.button.danger { background: var(--error); color: #fff; }
+
+.button:disabled { opacity: 0.55; cursor: default; }
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  text-decoration: none;
+}
+
+.icon-button:hover { background: var(--hover); }
+
+input[type="text"], input[type="password"], input:not([type]) {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+input:focus-visible, button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.error-text { color: var(--error); margin: 0; }
+.muted { color: var(--muted); }
+
+/* ---- file type tiles ---- */
+
+.tile {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+
+.kind-folder { background: var(--folder-bg); color: var(--folder-fg); }
+.kind-image { background: var(--image-bg); color: var(--image-fg); }
+.kind-video { background: var(--video-bg); color: var(--video-fg); }
+.kind-audio { background: var(--audio-bg); color: var(--audio-fg); }
+.kind-pdf { background: var(--pdf-bg); color: var(--pdf-fg); }
+.kind-text { background: var(--text-bg); color: var(--text-fg); }
+.kind-archive { background: var(--archive-bg); color: var(--archive-fg); }
+.kind-file { background: var(--file-bg); color: var(--file-fg); }
+
+/* ---- dialogs and sheets ---- */
+
+dialog {
+  border: 0;
+  padding: 0;
+  background: var(--raised);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+}
+
+dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+
+/* A sheet slides up from the bottom on a phone, and is a centred card on a
+   bigger screen. */
+dialog.sheet {
+  width: 100%;
+  max-width: 520px;
+  margin: auto auto 0;
+  border-radius: 18px 18px 0 0;
+  padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+  max-height: 85dvh;
+}
+
+dialog.sheet[open] { animation: sheet-in 0.18s ease-out; }
+
+@keyframes sheet-in {
+  from { transform: translateY(40px); opacity: 0; }
+}
+
+@media (min-width: 600px) {
+  dialog.sheet { margin: auto; border-radius: 18px; }
+}
+
+dialog.card {
+  width: min(420px, calc(100vw - 32px));
+  border-radius: 18px;
+  padding: 20px;
+}
+
+.sheet-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 12px 20px;
+  font-size: 1rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 20px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  text-decoration: none;
+  font-size: 1rem;
+}
+
+.sheet-item:hover { background: var(--hover); }
+.sheet-item.danger { color: var(--error); }
+.sheet-item .icon { color: var(--muted); }
+.sheet-item.danger .icon { color: inherit; }
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* ---- motion ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

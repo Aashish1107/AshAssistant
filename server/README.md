@@ -3,12 +3,12 @@
 The Go server behind Ash Cloud. See [`docs/PLAN.md`](../docs/PLAN.md) for the
 full plan.
 
-**Current stage: Phase 1, step 5.** From your phone you can log in, browse
-your files, open photos and documents, and play videos (drag the slider to
-any point without downloading the rest). You can also **upload** files, fast
-and resumable, make folders, and rename, move and delete (with Undo).
-
-The page at `/` is a simple **test page**. The real app replaces it in step 6.
+**Current stage: Phase 1, step 6.** Ash Cloud is a real phone app now: add it
+to your home screen and it opens full screen, in about a quarter of a second.
+From it you can browse your files, view photos (swipe between them), play
+videos (with −10 / +10 and a choice of audio track), **upload** (fast and
+resumable), make folders, rename, move and delete (with Undo), and send
+photos straight from your gallery with **Share → Ash Cloud**.
 
 ---
 
@@ -34,10 +34,12 @@ instead.)
 .\ashcloud.exe serve
 ```
 
-The first start after updating prints `database schema updated` with the new
-versions (`[4]` if you're coming from step 4). Those are added automatically.
-Your account, password, settings, sessions and files are kept, and your admin
-account's ID stays `1`.
+If you skipped step 5, the first start prints `database schema updated` with
+`[4]`; that's added automatically. Your account, password, settings,
+sessions and files are always kept, and your admin account's ID stays `1`.
+
+(The app itself is already built into `ashcloud.exe`; the laptop doesn't need
+Node.js. That's only for changing the app, see [Development](#development).)
 
 ### 2b. Install ffmpeg (once, for switching audio tracks)
 
@@ -50,46 +52,44 @@ server from there. The server window should say
 `ffmpeg found - audio track switching is on`. Without ffmpeg everything else
 still works; the player's Audio menu just explains that switching is off.
 
-### 3. Upload from the phone
+### 3. Put Ash Cloud on your phone's home screen
 
-With **Wi-Fi off** and the **Tailscale app on**, open
-`https://<laptop-name>.<tailnet-name>.ts.net/` and log in if asked. Then:
+With the **Tailscale app on**, open `https://<laptop-name>.<tailnet-name>.ts.net/`
+in **Chrome** and log in. Then either:
 
-1. Tap **New folder**, call it `Camera`, and open it.
-2. Tap **Upload** and pick a few photos and a video from your gallery. They
-   go up three at a time, each with its own progress bar, and the total
-   speed and time left at the top.
-3. Tap **⋯** next to a photo → **Rename**. Then **⋯** → **Delete**, and tap
-   **Undo** in the bar that appears at the bottom.
+- tap the round **A** (your account) at the top right → **Add Ash Cloud to
+  the home screen**, or
+- Chrome's menu **⋮** → **Add to Home screen** (or **Install app**).
 
-**Step 5 is done** when the photo arrives, is renamed and comes back after
-Undo. On the laptop the files are in **`C:\AshCloud\storage\users\1\Camera\`**,
-with the dates they were taken. See [Uploading and changing files](#uploading-and-changing-files)
-for what happens when the connection drops.
+From now on, open it from its icon. It runs full screen like any other app,
+and opens straight away because the app itself is kept on the phone; only
+your files come from the laptop. Updates arrive by themselves: after you
+update the laptop, the app picks up the new version the next time it's opened.
+
+### 4. Try it
+
+With **Wi-Fi off**, open Ash Cloud from the home screen:
+
+1. **Browse.** Folders first, then files, each with its size and date. Tap a
+   folder to open it; go up with **‹**, the path under the title, or the
+   phone's Back button.
+2. **Photos.** Tap one: it fills the screen. Swipe left and right for the
+   others in the folder, pinch to zoom, swipe down or press Back to close.
+3. **Videos.** Tap one: it opens in the [player](#the-video-player).
+4. **Upload.** The **Upload** button at the bottom right. Pick photos,
+   videos or any files; progress shows at the bottom (tap it for each file).
+5. **Share from the gallery.** In Google Photos or the Gallery, select some
+   photos → **Share** → **Ash Cloud**, choose a folder, **Upload**.
+6. **Change things.** **⋯** next to any file or folder: Download, Rename,
+   Move to…, Delete (with **Undo**). The folder-with-a-plus at the top makes
+   a new folder.
+
+**Step 6 is done** when all of that works by tapping, without typing an
+address.
 
 You can still copy files into `C:\AshCloud\storage\users\1\` with File
-Explorer; they show up on the phone right away.
-
-### 4. Browse and play on the phone
-
-1. Your folders and files are listed, folders first. Tap a folder to open
-   it, and use the path at the top (Home / …) or the phone's Back button to go up.
-2. Tap a **photo** or **PDF** to view it, and a **text file** to read it.
-   To download a file, tap **⋯** next to it → **Download**.
-3. Tap your **video**. It opens in Ash Cloud's player (see
-   [The video player](#the-video-player)). Press ▶, then **drag the slider**
-   to near the end, then back to the middle.
-
-The video should start within a few seconds and resume within about 1–2
-seconds after each drag. In the server window on the laptop
-you'll see several lines like this one:
-
-```
-msg=request method=GET path=/api/v1/files/content status=206 bytes=8244224 ...
-```
-
-`status=206` means "here's the part you asked for". The phone fetches only
-the pieces it plays, not the whole file.
+Explorer; they show up in the app right away (it reloads the folder whenever
+you come back to it).
 
 ### Which videos play in the browser
 
@@ -112,7 +112,7 @@ Tapping a video opens it in Ash Cloud's own player:
 
 ```
 [━━━━━━●━━━━━━━━━━━━━━━━]  12:04 / 1:58:30
- −10   ▶   +10            Audio: Hindi   ⤢
+ −10   ▶   +10            🎧 Hindi   ⤢
 ```
 
 | Control | What it does |
@@ -120,9 +120,10 @@ Tapping a video opens it in Ash Cloud's own player:
 | **−10** | Back 10 seconds |
 | **▶ / ❚❚** | Play / pause. Tapping the picture does the same. |
 | **+10** | Forward 10 seconds |
-| **Slider** | Jump anywhere in the video |
-| **Audio: …** | Choose the audio track, e.g. English or Hindi, for videos that have more than one |
+| **Slider** | Jump anywhere in the video, without downloading the rest |
+| **🎧 English** | Choose the audio track, e.g. English or Hindi, for videos that have more than one |
 | **⤢** | Full screen. The phone turns sideways and the controls stay visible. |
+| **‹** / **⬇** (top) | Back to the folder / download the video |
 
 On a laptop keyboard, **←** and **→** skip 10 seconds and **Space** plays or
 pauses.
@@ -251,7 +252,7 @@ ashcloud help                           show help
 
 | Endpoint | Login needed | Response |
 |---|---|---|
-| `GET /` | no | Login test page (the real app arrives in step 6). |
+| `GET /` | no | The app. Its files: `/assets/*` (named by content, cached for a year), `/icons/*`, `/sw.js` (service worker), `/manifest.webmanifest`. Sent brotli- or gzip-compressed. |
 | `GET /healthz` | no | `200 ok`: the process is up. |
 | `GET /readyz` | no | `200` / `503` JSON: database and files folder both work. |
 | `POST /api/v1/auth/login` | no | `{"username", "password"}` → `200` + session cookie; `401` wrong username or password; `429` too many wrong passwords (not for admins). |
@@ -301,6 +302,10 @@ shown. A misspelled one stops the server with a message naming it.
 | "Too many wrong passwords from this device" | Only happens for non-admin accounts. Wait the number of minutes shown. |
 | "Requests from other websites aren't allowed" when logging in | Your browser is too old to send the `Sec-Fetch-Site` header (it's in Safari 16.4+, Chrome 76+). Update the phone's browser. |
 | Logged out unexpectedly | Something ended the session. Either the password was reset, the device wasn't used for 30 days, or the browser's cookies were cleared. Log in again. |
+| No **Add to home screen** / **Install app** | Open the `https://….ts.net` address in **Chrome** (not inside another app, and not `http://`). Installing needs HTTPS, which Tailscale provides. |
+| **Ash Cloud** isn't in the gallery's Share menu | Only once the app is on the home screen. If it was added before step 6, remove it and add it again. |
+| The app still looks old after updating the laptop | It updates itself in the background: close it (swipe it away in Recents) and open it again. |
+| App says "Can't reach the laptop" | The laptop is asleep or the server isn't running, or the Tailscale app on the phone is off. Fix that, then tap **Try again**. |
 | Audio menu says "ffmpeg isn't installed" | Run `winget install Gyan.FFmpeg`, then start the server from a **new** PowerShell window. Or set `ffmpeg_dir` in the settings to the folder holding `ffmpeg.exe`. |
 | Audio menu says "only one audio track" | That video really has just one. |
 | Switching audio says "Couldn't prepare that audio track" | The server window shows ffmpeg's reason under `audio track extraction failed`. |
@@ -373,6 +378,8 @@ C:\AshCloud\
 
 ## Development
 
+**Server** (in `server\`):
+
 ```powershell
 go vet ./...
 go test ./...
@@ -397,6 +404,26 @@ sqlc generate
 Schema changes are new numbered files in `internal/db/migrations`. The
 server applies any it hasn't run yet every time it starts.
 
+**App** (in `web\`, needs Node.js 22+: `winget install OpenJS.NodeJS.LTS`).
+It's Svelte 5 + TypeScript, built with Vite. The build goes into
+`server\internal\webui\dist`, which is committed, so the server builds without
+Node.
+
+```powershell
+npm ci                 # once, and after the dependencies change
+npm run dev            # the app on http://localhost:5173, using the server on 127.0.0.1:8080
+npm run check          # type and accessibility checks
+npm test               # unit tests
+npm run build          # build into the server; then rebuild ashcloud.exe and commit dist
+npx playwright install chromium   # once, for:
+npm run e2e            # end-to-end tests on a phone-sized browser, against a fresh server
+```
+
+The built app is about 90 KB of JavaScript (33 KB compressed). Measured on a
+simulated 4G connection (100 ms round trips): the folder shows about 0.5 s
+after opening the app for the first time, and about 0.28 s once it's on the
+home screen.
+
 Code layout:
 
 ```
@@ -412,6 +439,10 @@ internal/drive/       changing files: resumable uploads, folders, moves, delete/
 internal/media/       ffprobe/ffmpeg: list a video's audio tracks, extract one, cache and clean up
 internal/storage/     files folder: per-user folders, writability check
 internal/httpapi/     routes, middleware chain, JSON errors, server start/stop
-internal/webui/       the browser page, built into the binary (test page until step 6):
-                      app.js (files, menus), uploads.js (upload queue), player.js (video player)
+internal/webui/       serves the app (dist/, built from web/) with caching and compression
+
+../web/src/           the app: App.svelte (screens), components/ (Files, Viewer, Player,
+                      Uploads, Share, Login, sheets and dialogs), lib/ (API, routing,
+                      folders, upload engine, audio-track sync), sw.js (service worker)
+../web/e2e/           end-to-end tests (Playwright)
 ```
